@@ -1,5 +1,5 @@
 {
-  "name": "test-trace-viewer",
+  "name": "trace-viewer",
   "private": false,
   "version": "0.1.0",
   "main": "./dist/index.cjs.js",

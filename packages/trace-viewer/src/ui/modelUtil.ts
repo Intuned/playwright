@@ -41,6 +41,13 @@ export type ActionTraceEventInContext = ActionTraceEvent & {
   context: ContextEntry;
 };
 
+export type ActionTreeItem = {
+  id: string;
+  children: ActionTreeItem[];
+  parent: ActionTreeItem | undefined;
+  action?: ActionTraceEventInContext;
+};
+
 export class MultiTraceModel {
   readonly startTime: number;
   readonly endTime: number;
@@ -52,10 +59,12 @@ export class MultiTraceModel {
   readonly pages: PageEntry[];
   readonly actions: ActionTraceEventInContext[];
   readonly events: trace.EventTraceEvent[];
+  readonly stdio: trace.StdioTraceEvent[];
   readonly hasSource: boolean;
   readonly sdkLanguage: Language | undefined;
   readonly testIdAttributeName: string | undefined;
   readonly sources: Map<string, SourceModel>;
+  resources: ResourceSnapshot[];
 
 
   constructor(contexts: ContextEntry[]) {
@@ -73,7 +82,9 @@ export class MultiTraceModel {
     this.pages = ([] as PageEntry[]).concat(...contexts.map(c => c.pages));
     this.actions = mergeActions(contexts);
     this.events = ([] as EventTraceEvent[]).concat(...contexts.map(c => c.events));
+    this.stdio = ([] as trace.StdioTraceEvent[]).concat(...contexts.map(c => c.stdio));
     this.hasSource = contexts.some(c => c.hasSource);
+    this.resources = [...contexts.map(c => c.resources)].flat();
 
     this.events.sort((a1, a2) => a1.time - a2.time);
     this.sources = collectSources(this.actions);
@@ -159,11 +170,32 @@ function mergeActions(contexts: ContextEntry[]) {
   return result;
 }
 
+export function buildActionTree(actions: ActionTraceEventInContext[]): { rootItem: ActionTreeItem, itemMap: Map<string, ActionTreeItem> } {
+  const itemMap = new Map<string, ActionTreeItem>();
+
+  for (const action of actions) {
+    itemMap.set(action.callId, {
+      id: action.callId,
+      parent: undefined,
+      children: [],
+      action,
+    });
+  }
+
+  const rootItem: ActionTreeItem = { id: '', parent: undefined, children: [] };
+  for (const item of itemMap.values()) {
+    const parent = item.action!.parentId ? itemMap.get(item.action!.parentId) || rootItem : rootItem;
+    parent.children.push(item);
+    item.parent = parent;
+  }
+  return { rootItem, itemMap };
+}
+
 export function idForAction(action: ActionTraceEvent) {
   return `${action.pageId || 'none'}:${action.callId}`;
 }
 
-export function context(action: ActionTraceEvent): ContextEntry {
+export function context(action: ActionTraceEvent | EventTraceEvent): ContextEntry {
   return (action as any)[contextSymbol];
 }
 

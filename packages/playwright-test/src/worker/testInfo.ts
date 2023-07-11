@@ -39,7 +39,7 @@ export interface TestStepInternal {
   apiName?: string;
   params?: Record<string, any>;
   error?: TestInfoError;
-  insulateChildErrors?: boolean;
+  infectParentStepsWithError?: boolean;
 }
 
 export class TestInfoImpl implements TestInfo {
@@ -265,12 +265,23 @@ export class TestInfoImpl implements TestInfo {
         } else if (result.error) {
           // Internal API step reported an error.
           error = result.error;
-        } else if (!data.insulateChildErrors) {
-          // One of the child steps failed (probably soft expect).
-          // Report this step as failed to make it easier to spot.
-          error = step.steps.map(s => s.error).find(e => !!e);
         }
         step.error = error;
+
+        if (!error) {
+          // Soft errors inside try/catch will make the test fail.
+          // In order to locate the failing step, we are marking all the parent
+          // steps as failing unconditionally.
+          for (const childStep of step.steps) {
+            if (childStep.error && childStep.infectParentStepsWithError) {
+              step.error = childStep.error;
+              step.infectParentStepsWithError = true;
+              break;
+            }
+          }
+          error = step.error;
+        }
+
         const payload: StepEndPayload = {
           testId: this._test.id,
           stepId,
@@ -299,6 +310,15 @@ export class TestInfoImpl implements TestInfo {
     this._onStepBegin(payload);
     this._traceEvents.push(createBeforeActionTraceEventForStep(stepId, parentStep?.stepId, data.apiName || data.title, data.params, data.wallTime, data.location ? [data.location] : []));
     return step;
+  }
+
+  _appendStdioToTrace(type: 'stdout' | 'stderr', chunk: string | Buffer) {
+    this._traceEvents.push({
+      type,
+      timestamp: monotonicTime(),
+      text: typeof chunk === 'string' ? chunk : undefined,
+      base64: typeof chunk === 'string' ? undefined : chunk.toString('base64'),
+    });
   }
 
   _interrupt() {
@@ -371,7 +391,12 @@ export class TestInfoImpl implements TestInfo {
   }
 
   outputPath(...pathSegments: string[]){
+    const outputPath = this._getOutputPath(...pathSegments);
     fs.mkdirSync(this.outputDir, { recursive: true });
+    return outputPath;
+  }
+
+  _getOutputPath(...pathSegments: string[]){
     const joinedPath = path.join(...pathSegments);
     const outputPath = getContainedPath(this.outputDir, joinedPath);
     if (outputPath)

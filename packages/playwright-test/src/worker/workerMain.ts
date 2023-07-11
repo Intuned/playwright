@@ -23,7 +23,7 @@ import { ConfigLoader } from '../common/configLoader';
 import type { Suite, TestCase } from '../common/test';
 import type { Annotation, FullConfigInternal, FullProjectInternal } from '../common/config';
 import { FixtureRunner } from './fixtureRunner';
-import { ManualPromise } from 'playwright-core/lib/utils';
+import { ManualPromise, captureLibraryStackTrace } from 'playwright-core/lib/utils';
 import { TestInfoImpl } from './testInfo';
 import { TimeoutManager, type TimeSlot } from './timeoutManager';
 import { ProcessRunner } from '../common/process';
@@ -81,6 +81,7 @@ export class WorkerMain extends ProcessRunner {
         ...chunkToParams(chunk)
       };
       this.dispatchEvent('stdOut', outPayload);
+      this._currentTest?._appendStdioToTrace('stdout', chunk);
       return true;
     };
 
@@ -90,6 +91,7 @@ export class WorkerMain extends ProcessRunner {
           ...chunkToParams(chunk)
         };
         this.dispatchEvent('stdErr', outPayload);
+        this._currentTest?._appendStdioToTrace('stderr', chunk);
         return true;
       };
     }
@@ -369,13 +371,25 @@ export class WorkerMain extends ProcessRunner {
         return;
       }
 
-      await testInfo._runAndFailOnError(async () => {
+      const error = await testInfo._runAndFailOnError(async () => {
         // Now run the test itself.
         debugTest(`test function started`);
         const fn = test.fn; // Extract a variable to get a better stack trace ("myTest" vs "TestCase.myTest [as fn]").
         await fn(testFunctionParams, testInfo);
         debugTest(`test function finished`);
       }, 'allowSkips');
+
+      // If there are no steps with errors in the test, but the test has an error - append artificial trace entry.
+      if (error && !testInfo._steps.some(s => !!s.error)) {
+        const frames = error.stack ? captureLibraryStackTrace(error.stack.split('\n')).frames : [];
+        const step = testInfo._addStep({
+          wallTime: Date.now(),
+          title: error.message || 'error',
+          category: 'hook',
+          location: frames[0],
+        });
+        step.complete({ error });
+      }
     });
 
     if (didFailBeforeAllForSuite) {
@@ -621,9 +635,9 @@ function formatTestTitle(test: TestCase, projectName: string) {
   return `${projectTitle}${location} › ${titles.join(' › ')}`;
 }
 
-function chunkToParams(chunk: Buffer | string):  { text?: string, buffer?: string } {
-  if (chunk instanceof Buffer)
-    return { buffer: chunk.toString('base64') };
+function chunkToParams(chunk: Uint8Array | string, encoding?: BufferEncoding):  { text?: string, buffer?: string } {
+  if (chunk instanceof Uint8Array)
+    return { buffer: Buffer.from(chunk).toString('base64') };
   if (typeof chunk !== 'string')
     return { text: util.inspect(chunk) };
   return { text: chunk };

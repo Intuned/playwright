@@ -128,7 +128,6 @@ export class SnapshotRenderer {
         // Pick the last resource with matching url - most likely it was used
         // at the time of snapshot, not the earlier aborted resource with the same url.
         result = resource;
-        break;
       }
     }
 

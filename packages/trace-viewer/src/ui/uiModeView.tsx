@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
+import '@web/common.css';
 import '@web/third_party/vscode/codicon.css';
 import { Workbench } from './workbench';
-import '@web/common.css';
 import React from 'react';
 import { TreeView } from '@web/components/treeView';
 import type { TreeState } from '@web/components/treeView';

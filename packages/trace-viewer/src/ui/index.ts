@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+export * from './uiModeView';
 export * from './timeline';
 export * from './actionList';
 export * from './attachmentsTab';
@@ -31,5 +32,4 @@ export * from './stackTrace';
 export * from './uiModeView';
 export * from './workbench';
 export * from './workbenchLoader';
-export * from './uiModeView';
 export * from './consoleTab';

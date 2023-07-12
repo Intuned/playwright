@@ -10,8 +10,9 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "vite build && tsc",
+    "build": "vite build && tsc && npm run build-sw",
     "build-sw": "vite --config vite.sw.config.ts build && tsc",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clean": "rmdir /s /q dist"
   }
 }

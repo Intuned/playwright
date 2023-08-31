@@ -19,13 +19,15 @@ import react from '@vitejs/plugin-react';
 // @ts-ignore
 import { bundle } from './bundle';
 import * as path from 'path';
+import dts from 'vite-plugin-dts';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   base: '',
   plugins: [
     react(),
-    bundle()
+    bundle(),
+    dts(),
   ],
   resolve: {
     alias: {
@@ -38,20 +40,23 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: path.resolve(__dirname, '../playwright-core/lib/webpack/traceViewer'),
     // Output dir is shared with vite.sw.config.ts, clearing it here is racy.
+    sourcemap: true,
     emptyOutDir: false,
-    rollupOptions: {
-      input: {
-        index: path.resolve(__dirname, 'index.html'),
-        uiMode: path.resolve(__dirname, 'uiMode.html'),
-        snapshot: path.resolve(__dirname, 'snapshot.html'),
-      },
-      output: {
-        entryFileNames: () => '[name].[hash].js',
-        assetFileNames: () => '[name].[hash][extname]',
-        manualChunks: undefined,
-      },
+    lib: {
+      entry: path.resolve(__dirname, './src/index.ts'),
+      name: 'traceViewer',
+      formats: ['es', 'cjs'],
+      fileName: format => `index.${format}.js`,
     },
-  }
+    rollupOptions: {
+      external: ['react', 'react-dom'],
+      output: {
+        globals: {
+          'react': 'React',
+          'react-dom': 'ReactDOM',
+        }
+      }
+    }
+  },
 });

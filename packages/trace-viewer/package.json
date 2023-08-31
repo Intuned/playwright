@@ -1,11 +1,18 @@
 {
-  "name": "trace-viewer",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@fadezak100/trace-viewer",
+  "private": false,
+  "version": "0.0.60",
+  "main": "./dist/index.cjs.js",
+  "module": "./dist/index.es.js",
+  "types": "./dist/trace-viewer/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build && tsc",
     "build-sw": "vite --config vite.sw.config.ts build && tsc",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clean": "rm -r dist"
   }
 }

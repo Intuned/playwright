@@ -31,3 +31,4 @@ test-results
 .cache/
 .eslintcache
 .npmrc
+storybook-static/

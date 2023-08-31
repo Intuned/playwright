@@ -27,50 +27,72 @@ export interface TabbedPaneTabModel {
 }
 
 export const TabbedPane: React.FunctionComponent<{
-  tabs: TabbedPaneTabModel[],
-  leftToolbar?: React.ReactElement[],
-  rightToolbar?: React.ReactElement[],
-  selectedTab: string,
-  setSelectedTab: (tab: string) => void
+  tabs: TabbedPaneTabModel[];
+  leftToolbar?: React.ReactElement[];
+  rightToolbar?: React.ReactElement[];
+  selectedTab: string;
+  setSelectedTab: (tab: string) => void;
 }> = ({ tabs, selectedTab, setSelectedTab, leftToolbar, rightToolbar }) => {
-  return <div className='tabbed-pane'>
-    <div className='vbox'>
-      <Toolbar>{[
-        ...leftToolbar || [],
-        ...tabs.map(tab => (
-          <TabbedPaneTab
-            id={tab.id}
-            title={tab.title}
-            count={tab.count}
-            selected={selectedTab === tab.id}
-            onSelect={setSelectedTab}
-          ></TabbedPaneTab>)),
-        <div className='spacer'></div>,
-        ...rightToolbar || [],
-      ]}</Toolbar>
-      {
-        tabs.map(tab => {
-          if (tab.component)
-            return <div key={tab.id} className='tab-content' style={{ display: selectedTab === tab.id ? 'inherit' : 'none' }}>{tab.component}</div>;
-          if (selectedTab === tab.id)
-            return <div key={tab.id} className='tab-content'>{tab.render!()}</div>;
-        })
-      }
+  return (
+    <div className="tabbed-pane">
+      <div className="vbox">
+        <Toolbar>
+          {[
+            ...(leftToolbar || []),
+            ...tabs.map(tab => (
+              <TabbedPaneTab
+                id={tab.id}
+                key={tab.id}
+                title={tab.title}
+                count={tab.count}
+                selected={selectedTab === tab.id}
+                onSelect={setSelectedTab}
+              ></TabbedPaneTab>
+            )),
+            <div className="spacer" key="spacer-b13f-0d5e382a6f0d"></div>,
+            ...(rightToolbar || []),
+          ]}
+        </Toolbar>
+        {tabs.map(tab => {
+          if (tab.component) {
+            return (
+              <div
+                key={tab.id}
+                className="tab-content"
+                style={{ display: selectedTab === tab.id ? 'inherit' : 'none' }}
+              >
+                {tab.component}
+              </div>
+            );
+          }
+          if (selectedTab === tab.id) {
+            return (
+              <div key={tab.id} className="tab-content">
+                {tab.render!()}
+              </div>
+            );
+          }
+        })}
+      </div>
     </div>
-  </div>;
+  );
 };
 
 export const TabbedPaneTab: React.FunctionComponent<{
-  id: string,
-  title: string | JSX.Element,
-  count?: number,
-  selected?: boolean,
-  onSelect: (id: string) => void
+  id: string;
+  title: string | JSX.Element;
+  count?: number;
+  selected?: boolean;
+  onSelect: (id: string) => void;
 }> = ({ id, title, count, selected, onSelect }) => {
-  return <div className={'tabbed-pane-tab ' + (selected ? 'selected' : '')}
-    onClick={() => onSelect(id)}
-    key={id}>
-    <div className='tabbed-pane-tab-label'>{title}</div>
-    <div className='tabbed-pane-tab-count'>{count || ''}</div>
-  </div>;
+  return (
+    <div
+      className={'tabbed-pane-tab ' + (selected ? 'selected' : '')}
+      onClick={() => onSelect(id)}
+      key={id}
+    >
+      <div className="tabbed-pane-tab-label">{title}</div>
+      <div className="tabbed-pane-tab-count">{count || ''}</div>
+    </div>
+  );
 };

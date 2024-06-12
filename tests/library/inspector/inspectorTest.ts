@@ -35,6 +35,7 @@ const codegenLang2Id: Map<string, string> = new Map([
   ['JSON', 'jsonl'],
   ['JavaScript', 'javascript'],
   ['Java', 'java'],
+  ['Java JUnit', 'java-junit'],
   ['Python', 'python'],
   ['Python Async', 'python-async'],
   ['Pytest', 'python-pytest'],
@@ -50,7 +51,7 @@ const playwrightToAutomateInspector = require('../../../packages/playwright-core
 export const test = contextTest.extend<CLITestArgs>({
   recorderPageGetter: async ({ context, toImpl, mode }, run, testInfo) => {
     process.env.PWTEST_RECORDER_PORT = String(10907 + testInfo.workerIndex);
-    testInfo.skip(mode === 'service');
+    testInfo.skip(mode.startsWith('service'));
     await run(async () => {
       while (!toImpl(context).recorderAppForTest)
         await new Promise(f => setTimeout(f, 100));
@@ -69,7 +70,7 @@ export const test = contextTest.extend<CLITestArgs>({
 
   runCLI: async ({ childProcess, browserName, channel, headless, mode, launchOptions }, run, testInfo) => {
     process.env.PWTEST_RECORDER_PORT = String(10907 + testInfo.workerIndex);
-    testInfo.skip(mode === 'service');
+    testInfo.skip(mode.startsWith('service'));
 
     await run((cliArgs, { autoExitWhen } = {}) => {
       return new CLIMock(childProcess, browserName, channel, headless, cliArgs, launchOptions.executablePath, autoExitWhen);
@@ -109,7 +110,6 @@ class Recorder {
   async setPageContentAndWait(page: Page, content: string, url: string = 'about:blank', frameCount: number = 1) {
     let callback;
     const result = new Promise(f => callback = f);
-    await page.goto(url);
     let msgCount = 0;
     const listener = msg => {
       if (msg.text() === 'Recorder script ready for test') {
@@ -121,6 +121,7 @@ class Recorder {
       }
     };
     page.on('console', listener);
+    await page.goto(url);
     await Promise.all([
       result,
       page.setContent(content)
@@ -202,7 +203,7 @@ class CLIMock {
   constructor(childProcess: CommonFixtures['childProcess'], browserName: string, channel: string | undefined, headless: boolean | undefined, args: string[], executablePath: string | undefined, autoExitWhen: string | undefined) {
     const nodeArgs = [
       'node',
-      path.join(__dirname, '..', '..', '..', 'packages', 'playwright-core', 'lib', 'cli', 'cli.js'),
+      path.join(__dirname, '..', '..', '..', 'packages', 'playwright-core', 'cli.js'),
       'codegen',
       ...args,
       `--browser=${browserName}`,

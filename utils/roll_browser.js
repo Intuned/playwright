@@ -61,8 +61,8 @@ Example:
     'wk': 'webkit',
   }[args[0].toLowerCase()] ?? args[0].toLowerCase();
   const descriptors = [browsersJSON.browsers.find(b => b.name === browserName)];
-  if (browserName === 'chromium')
-    descriptors.push(browsersJSON.browsers.find(b => b.name === 'chromium-with-symbols'));
+  if (browserName === 'firefox')
+    descriptors.push(browsersJSON.browsers.find(b => b.name === 'firefox-asan'));
 
   if (!descriptors.every(d => !!d)) {
     console.log(`Unknown browser "${browserName}"`);

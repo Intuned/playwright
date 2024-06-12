@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
+import { kTargetClosedErrorMessage } from '../config/errors';
 import { browserTest as it, expect } from '../config/browserTest';
 import { attachFrame, verifyViewport } from '../config/utils';
+import type { Page } from '@playwright/test';
 
 it('should create new context @smoke', async function({ browser }) {
   expect(browser.contexts().length).toBe(0);
@@ -27,6 +29,42 @@ it('should create new context @smoke', async function({ browser }) {
   await context.close();
   expect(browser.contexts().length).toBe(0);
   expect(browser).toBe(context.browser());
+});
+
+it('should be able to click across browser contexts', async function({ browser }) {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29096' });
+  expect(browser.contexts().length).toBe(0);
+
+  const createPage = async () => {
+    const page = await browser.newPage();
+    await page.setContent(`<button>Click me</button>`);
+    await page.locator('button').evaluate(button => {
+      window['clicks'] = 0;
+      button.addEventListener('click', () => ++window['clicks'], false);
+    });
+    return page;
+  };
+
+  const clickInPage = async (page, count) => {
+    for (let i = 0; i < count; ++i)
+      await page.locator('button').click();
+  };
+
+  const getClicks = async page => page.evaluate(() => window['clicks']);
+
+  const page1 = await createPage();
+  const page2 = await createPage();
+
+  const CLICK_COUNT = 20;
+  await Promise.all([
+    clickInPage(page1, CLICK_COUNT),
+    clickInPage(page2, CLICK_COUNT),
+  ]);
+  expect(await getClicks(page1)).toBe(CLICK_COUNT);
+  expect(await getClicks(page2)).toBe(CLICK_COUNT);
+
+  await page1.close();
+  await page2.close();
 });
 
 it('window.open should use parent tab context', async function({ browser, server }) {
@@ -129,7 +167,7 @@ it('close() should abort waitForEvent', async ({ browser }) => {
   const promise = context.waitForEvent('page').catch(e => e);
   await context.close();
   const error = await promise;
-  expect(error.message).toContain('Context closed');
+  expect(error.message).toContain(kTargetClosedErrorMessage);
 });
 
 it('close() should be callable twice', async ({ browser }) => {
@@ -153,7 +191,7 @@ it('should not report frameless pages on error', async ({ browser, server }) => 
   server.setRoute('/empty.html', (req, res) => {
     res.end(`<a href="${server.EMPTY_PAGE}" target="_blank">Click me</a>`);
   });
-  let popup;
+  let popup: Page | undefined;
   context.on('page', p => popup = p);
   await page.goto(server.EMPTY_PAGE);
   await page.click('"Click me"');
@@ -193,9 +231,9 @@ it('should disable javascript', async ({ browser, browserName }) => {
     let error = null;
     await page.evaluate('something').catch(e => error = e);
     if (browserName === 'webkit')
-      expect(error.message).toContain('Can\'t find variable: something');
+      expect(error!.message).toContain('Can\'t find variable: something');
     else
-      expect(error.message).toContain('something is not defined');
+      expect(error!.message).toContain('something is not defined');
     await context.close();
   }
 
@@ -231,15 +269,25 @@ it('setContent should work after disabling javascript', async ({ contextFactory 
   await expect(page.locator('h1')).toHaveText('Hello');
 });
 
-it('should work with offline option', async ({ browser, server }) => {
+it('should work with offline option', async ({ browser, server, browserName }) => {
   const context = await browser.newContext({ offline: true });
   const page = await context.newPage();
   let error = null;
-  await page.goto(server.EMPTY_PAGE).catch(e => error = e);
+  if (browserName === 'firefox') {
+    // Firefox navigates to an error page, and this navigation might conflict with the
+    // next navigation we do in test.
+    // So we need to wait for the navigation explicitly.
+    await Promise.all([
+      page.goto(server.EMPTY_PAGE).catch(e => error = e),
+      page.waitForEvent('framenavigated'),
+    ]);
+  } else {
+    await page.goto(server.EMPTY_PAGE).catch(e => error = e);
+  }
   expect(error).toBeTruthy();
   await context.setOffline(false);
   const response = await page.goto(server.EMPTY_PAGE);
-  expect(response.status()).toBe(200);
+  expect(response!.status()).toBe(200);
   await context.close();
 });
 

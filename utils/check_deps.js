@@ -29,7 +29,7 @@ const packages = new Map();
 packages.set('web', packagesDir + '/web/src/');
 packages.set('injected', packagesDir + '/playwright-core/src/server/injected/');
 packages.set('isomorphic', packagesDir + '/playwright-core/src/utils/isomorphic/');
-packages.set('testIsomorphic', packagesDir + '/playwright-test/src/isomorphic/');
+packages.set('testIsomorphic', packagesDir + '/playwright/src/isomorphic/');
 
 const peerDependencies = ['electron', 'react', 'react-dom', '@zip.js/zip.js'];
 
@@ -45,11 +45,11 @@ async function checkDeps() {
   await innerCheckDeps(path.join(packagesDir, 'web'));
 
   const corePackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright-core'));
-  const testPackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright-test'));
+  const playwrightPackageJson = await innerCheckDeps(path.join(packagesDir, 'playwright'));
 
   let hasVersionMismatch = false;
   for (const [key, value] of Object.entries(corePackageJson.dependencies || {})) {
-    const value2 = testPackageJson.dependencies[key];
+    const value2 = playwrightPackageJson.dependencies[key];
     if (value2 && value2 !== value) {
       hasVersionMismatch = true;
       console.log(`Dependency version mismatch ${key}: ${value} != ${value2}`);
@@ -79,7 +79,7 @@ async function innerCheckDeps(root) {
   });
   const sourceFiles = program.getSourceFiles();
   const errors = [];
-  sourceFiles.filter(x => !x.fileName.includes('node_modules')).map(x => visit(x, x.fileName));
+  sourceFiles.filter(x => !x.fileName.includes('node_modules')).map(x => visit(x, x.fileName, x.getFullText()));
 
   if (errors.length) {
     for (const error of errors)
@@ -112,7 +112,7 @@ async function innerCheckDeps(root) {
 
   return packageJSON;
 
-  function visit(node, fileName) {
+  function visit(node, fileName, text) {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       if (node.importClause) {
         if (node.importClause.isTypeOnly)
@@ -135,7 +135,7 @@ async function innerCheckDeps(root) {
 
       const mergedDeps = calculateDeps(fileName);
       if (mergedDeps.includes('***'))
-        return; 
+        return;
       if (importPath) {
         if (!fs.existsSync(importPath)) {
           if (fs.existsSync(importPath + '.ts'))
@@ -151,6 +151,14 @@ async function innerCheckDeps(root) {
         return;
       }
 
+      const fullStart = node.getFullStart();
+      const commentRanges = ts.getLeadingCommentRanges(text, fullStart);
+      for (const range of commentRanges || []) {
+          const comment = text.substring(range.pos, range.end);
+          if (comment.includes('@no-check-deps'))
+            return;
+      }
+
       if (importName.startsWith('@'))
         deps.add(importName.split('/').slice(0, 2).join('/'));
       else
@@ -159,7 +167,7 @@ async function innerCheckDeps(root) {
       if (!allowExternalImport(importName, packageJSON))
         errors.push(`Disallowed external dependency ${importName} from ${path.relative(root, fileName)}`);
     }
-    ts.forEachChild(node, x => visit(x, fileName));
+    ts.forEachChild(node, x => visit(x, fileName, text));
   }
 
   function calculateDeps(from) {

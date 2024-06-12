@@ -33,11 +33,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createGuid, urlMatches } from '../../utils';
 import { WritableStreamDispatcher } from './writableStreamDispatcher';
-import { ConsoleMessageDispatcher } from './consoleMessageDispatcher';
 import { DialogDispatcher } from './dialogDispatcher';
 import type { Page } from '../page';
 import type { Dialog } from '../dialog';
 import type { ConsoleMessage } from '../console';
+import { serializeError } from '../errors';
+import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 
 export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextChannel, DispatcherScope> implements channels.BrowserContextChannel {
   _type_EventTarget = true;
@@ -52,6 +53,7 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
 
     super(parentScope, context, 'BrowserContext', {
       isChromium: context._browser.options.isChromium,
+      isLocalBrowserOnServer: context._browser._isCollocatedWithServer,
       requestContext,
       tracing,
     });
@@ -84,9 +86,21 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
       this._dispatchEvent('close');
       this._dispose();
     });
+    this.addObjectListener(BrowserContext.Events.PageError, (error: Error, page: Page) => {
+      this._dispatchEvent('pageError', { error: serializeError(error), page: PageDispatcher.from(this, page) });
+    });
     this.addObjectListener(BrowserContext.Events.Console, (message: ConsoleMessage) => {
-      if (this._shouldDispatchEvent(message.page(), 'console'))
-        this._dispatchEvent('console', { message: new ConsoleMessageDispatcher(PageDispatcher.from(this, message.page()), message) });
+      const page = message.page()!;
+      if (this._shouldDispatchEvent(page, 'console')) {
+        const pageDispatcher = PageDispatcher.from(this, page);
+        this._dispatchEvent('console', {
+          page: pageDispatcher,
+          type: message.type(),
+          text: message.text(),
+          args: message.args().map(a => ElementHandleDispatcher.fromJSHandle(pageDispatcher, a)),
+          location: message.location(),
+        });
+      }
     });
     this.addObjectListener(BrowserContext.Events.Dialog, (dialog: Dialog) => {
       if (this._shouldDispatchEvent(dialog.page(), 'dialog'))
@@ -170,7 +184,7 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     await fs.promises.mkdir(tmpDir);
     this._context._tempDirs.push(tmpDir);
     const file = fs.createWriteStream(path.join(tmpDir, params.name));
-    return { writableStream: new WritableStreamDispatcher(this, file) };
+    return { writableStream: new WritableStreamDispatcher(this, file, params.lastModifiedMs) };
   }
 
   async setDefaultNavigationTimeoutNoReply(params: channels.BrowserContextSetDefaultNavigationTimeoutNoReplyParams) {
@@ -206,8 +220,15 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     await this._context.addCookies(params.cookies);
   }
 
-  async clearCookies(): Promise<void> {
-    await this._context.clearCookies();
+  async clearCookies(params: channels.BrowserContextClearCookiesParams): Promise<void> {
+    const nameRe = params.nameRegexSource !== undefined && params.nameRegexFlags !== undefined ? new RegExp(params.nameRegexSource, params.nameRegexFlags) : undefined;
+    const domainRe = params.domainRegexSource !== undefined && params.domainRegexFlags !== undefined ? new RegExp(params.domainRegexSource, params.domainRegexFlags) : undefined;
+    const pathRe = params.pathRegexSource !== undefined && params.pathRegexFlags !== undefined ? new RegExp(params.pathRegexSource, params.pathRegexFlags) : undefined;
+    await this._context.clearCookies({
+      name: nameRe || params.name,
+      domain: domainRe || params.domain,
+      path: pathRe || params.path,
+    });
   }
 
   async grantPermissions(params: channels.BrowserContextGrantPermissionsParams): Promise<void> {
@@ -258,7 +279,8 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
   }
 
   async close(params: channels.BrowserContextCloseParams, metadata: CallMetadata): Promise<void> {
-    await this._context.close(metadata);
+    metadata.potentiallyClosesScope = true;
+    await this._context.close(params);
   }
 
   async recorderSupplementEnable(params: channels.BrowserContextRecorderSupplementEnableParams): Promise<void> {

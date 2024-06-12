@@ -18,12 +18,12 @@ import type { HTMLReport, TestCaseSummary, TestFileSummary } from './types';
 import * as React from 'react';
 import { msToString } from './uiUtils';
 import { Chip } from './chip';
-import type { Filter } from './filter';
+import { filterWithToken, type Filter } from './filter';
 import { generateTraceUrl, Link, navigate, ProjectLink } from './links';
 import { statusIcon } from './statusIcon';
 import './testFileView.css';
 import { video, image, trace } from './icons';
-import { hashStringToInt, matchTags } from './labelUtils';
+import { hashStringToInt } from './labelUtils';
 
 export const TestFileView: React.FC<React.PropsWithChildren<{
   report: HTMLReport;
@@ -32,8 +32,6 @@ export const TestFileView: React.FC<React.PropsWithChildren<{
   setFileExpanded: (fileId: string, expanded: boolean) => void;
   filter: Filter;
 }>> = ({ file, report, isFileExpanded, setFileExpanded, filter }) => {
-  const labels = React.useCallback((test: TestCaseSummary) => matchTags(test.path.join(' ') + ' ' + test?.title).sort((a, b) => a.localeCompare(b)), []);
-
   return <Chip
     expanded={isFileExpanded(file.fileId)}
     noInsets={true}
@@ -54,7 +52,7 @@ export const TestFileView: React.FC<React.PropsWithChildren<{
               </Link>
               {report.projectNames.length > 1 && !!test.projectName &&
               <ProjectLink projectNames={report.projectNames} projectName={test.projectName} />}
-              <LabelsClickView labels={labels(test)} />
+              <LabelsClickView labels={test.tags} />
             </span>
           </div>
           <span data-testid='test-duration' style={{ minWidth: '50px', textAlign: 'right' }}>{msToString(test.duration)}</span>
@@ -93,33 +91,19 @@ const LabelsClickView: React.FC<React.PropsWithChildren<{
   labels: string[],
 }>> = ({ labels }) => {
 
-  const onClickHandle = (e: React.MouseEvent, tag: string) => {
+  const onClickHandle = (e: React.MouseEvent, label: string) => {
     e.preventDefault();
     const searchParams = new URLSearchParams(window.location.hash.slice(1));
-    let q = searchParams.get('q')?.toString() || '';
-
-    // if metaKey or ctrlKey is pressed, add tag to search query without replacing existing tags
-    // if metaKey or ctrlKey is pressed and tag is already in search query, remove tag from search query
-    if (e.metaKey || e.ctrlKey) {
-      if (!q.includes(`@${tag}`))
-        q = `${q} @${tag}`.trim();
-      else
-        q = q.split(' ').filter(t => t !== `@${tag}`).join(' ').trim();
-      // if metaKey or ctrlKey is not pressed, replace existing tags with new tag
-    } else {
-      if (!q.includes('@'))
-        q = `${q} @${tag}`.trim();
-      else
-        q = (q.split(' ').filter(t => !t.startsWith('@')).join(' ').trim() + ` @${tag}`).trim();
-    }
-    navigate(q ? `#?q=${q}` : '#');
+    const q = searchParams.get('q')?.toString() || '';
+    const tokens = q.split(' ');
+    navigate(filterWithToken(tokens, label, e.metaKey || e.ctrlKey));
   };
 
   return labels.length > 0 ? (
     <>
-      {labels.map(tag => (
-        <span key={tag} style={{ margin: '6px 0 0 6px', cursor: 'pointer' }} className={'label label-color-' + (hashStringToInt(tag))} onClick={e => onClickHandle(e, tag)}>
-          {tag}
+      {labels.map(label => (
+        <span key={label} style={{ margin: '6px 0 0 6px', cursor: 'pointer' }} className={'label label-color-' + (hashStringToInt(label))} onClick={e => onClickHandle(e, label)}>
+          {label.slice(1)}
         </span>
       ))}
     </>

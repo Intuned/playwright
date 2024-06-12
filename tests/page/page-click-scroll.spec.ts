@@ -78,9 +78,9 @@ it('should scroll into view display:contents with position', async ({ page, brow
   expect(await page.evaluate('window._clicked')).toBe(true);
 });
 
-it('should not crash when force-clicking hidden input', async ({ page, browserName, channel, browserMajorVersion }) => {
+it('should not crash when force-clicking hidden input', async ({ page, isWebView2 }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/18183' });
-  it.skip(browserName === 'chromium' && browserMajorVersion < 109 || channel && channel.startsWith('msedge') && browserMajorVersion < 110);
+  it.fixme(isWebView2);
 
   await page.setContent(`<input type=hidden>`);
   const error = await page.locator('input').click({ force: true, timeout: 2000 }).catch(e => e);
@@ -96,4 +96,15 @@ it('should scroll into view span element', async ({ page, isAndroid }) => {
   `);
   await page.locator('#small').scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(9000);
+});
+
+it('should scroll into view element in iframe', async ({ page, isAndroid, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27196' });
+  it.fixme(isAndroid);
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`
+    <div id=big style="height: 10000px;"></div>
+    <iframe src='${server.CROSS_PROCESS_PREFIX}/input/button.html'></iframe>
+  `);
+  await page.frameLocator('iframe').getByRole('button').click({ timeout: 5000 });
 });

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import fs from 'fs';
 import { androidTest as test, expect } from './androidTest';
 
 test.afterAll(async ({ androidDevice }) => {
@@ -86,6 +87,44 @@ test('should check', async function({ androidDevice }) {
   await context.close();
 });
 
+test('should take page screenshot', async function({ androidDevice }) {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26342' });
+  test.fixme(true, 'Sometimes fails with Protocol error (Page.captureScreenshot): Unable to capture screenshot');
+  test.fixme(true, 'Regular screenshot has an extra pixel border');
+  test.fixme(true, 'Full page screenshot has repeated content');
+
+  const context = await androidDevice.launchBrowser();
+  const [page] = context.pages();
+
+  await page.setContent(`
+    <html lang="en">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body>
+        <style>
+          * { margin: 0; padding: 0; }
+          div {
+            width: 200px;
+            height: 250px;
+          }
+        </style>
+        <div style="background: red"></div>
+        <div style="background: green"></div>
+        <div style="background: red"></div>
+        <div style="background: green"></div>
+        <div style="background: red"></div>
+        <div style="background: green"></div>
+      </body>
+    </html>
+  `);
+  const screenshot = await page.screenshot({ fullPage: false, scale: 'css' });
+  const fullPageScreenshot = await page.screenshot({ fullPage: true, scale: 'css' });
+  expect(screenshot).toMatchSnapshot('page-screenshot.png');
+  expect(fullPageScreenshot).toMatchSnapshot('fullpage-screenshot.png');
+  await context.close();
+});
+
 test('should be able to send CDP messages', async ({ androidDevice }) => {
   const context = await androidDevice.launchBrowser();
   const [page] = context.pages();
@@ -116,4 +155,20 @@ test('should be able to pass context options', async ({ androidDevice, httpsServ
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(true);
   expect(await page.evaluate(() => matchMedia('(prefers-color-scheme: light)').matches)).toBe(false);
   await context.close();
+});
+
+test('should record har', async ({ androidDevice }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28015' });
+  const harPath = test.info().outputPath('test.har');
+
+  const context = await androidDevice.launchBrowser({
+    recordHar: { path: harPath }
+  });
+  const [page] = context.pages();
+  await page.goto('data:text/html,<title>Hello</title>');
+  await page.waitForLoadState('domcontentloaded');
+  await context.close();
+
+  const log = JSON.parse(fs.readFileSync(harPath).toString())['log'];
+  expect(log.pages[0].title).toBe('Hello');
 });

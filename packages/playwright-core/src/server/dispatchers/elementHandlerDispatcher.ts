@@ -23,10 +23,8 @@ import { JSHandleDispatcher, serializeResult, parseArgument } from './jsHandleDi
 import type { JSHandleDispatcherParentScope } from './jsHandleDispatcher';
 import { FrameDispatcher } from './frameDispatcher';
 import type { CallMetadata } from '../instrumentation';
-import type { WritableStreamDispatcher } from './writableStreamDispatcher';
-import { assert } from '../../utils';
-import path from 'path';
-import type { PageDispatcher } from './pageDispatcher';
+import { BrowserContextDispatcher } from './browserContextDispatcher';
+import { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
 
 export class ElementHandleDispatcher extends JSHandleDispatcher implements channels.ElementHandleChannel {
   _type_ElementHandle = true;
@@ -57,12 +55,12 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
 
   async ownerFrame(params: channels.ElementHandleOwnerFrameParams, metadata: CallMetadata): Promise<channels.ElementHandleOwnerFrameResult> {
     const frame = await this._elementHandle.ownerFrame();
-    return { frame: frame ? FrameDispatcher.from(this.parentScope() as PageDispatcher, frame) : undefined };
+    return { frame: frame ? FrameDispatcher.from(this._browserContextDispatcher(), frame) : undefined };
   }
 
   async contentFrame(params: channels.ElementHandleContentFrameParams, metadata: CallMetadata): Promise<channels.ElementHandleContentFrameResult> {
     const frame = await this._elementHandle.contentFrame();
-    return { frame: frame ? FrameDispatcher.from(this.parentScope() as PageDispatcher, frame) : undefined };
+    return { frame: frame ? FrameDispatcher.from(this._browserContextDispatcher(), frame) : undefined };
   }
 
   async getAttribute(params: channels.ElementHandleGetAttributeParams, metadata: CallMetadata): Promise<channels.ElementHandleGetAttributeResult> {
@@ -150,19 +148,7 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
   }
 
   async setInputFiles(params: channels.ElementHandleSetInputFilesParams, metadata: CallMetadata): Promise<void> {
-    return await this._elementHandle.setInputFiles(metadata, { files: params.files }, params);
-  }
-
-  async setInputFilePaths(params: channels.ElementHandleSetInputFilePathsParams, metadata: CallMetadata): Promise<void> {
-    let { localPaths } = params;
-    if (!localPaths) {
-      if (!params.streams)
-        throw new Error('Neither localPaths nor streams is specified');
-      localPaths = params.streams.map(c => (c as WritableStreamDispatcher).path());
-    }
-    for (const p of localPaths)
-      assert(path.isAbsolute(p) && path.resolve(p) === p, 'Paths provided to localPaths must be absolute and fully resolved.');
-    return await this._elementHandle.setInputFiles(metadata, { localPaths }, params);
+    return await this._elementHandle.setInputFiles(metadata, params);
   }
 
   async focus(params: channels.ElementHandleFocusParams, metadata: CallMetadata): Promise<void> {
@@ -223,4 +209,20 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
   async waitForSelector(params: channels.ElementHandleWaitForSelectorParams, metadata: CallMetadata): Promise<channels.ElementHandleWaitForSelectorResult> {
     return { element: ElementHandleDispatcher.fromNullable(this.parentScope(), await this._elementHandle.waitForSelector(metadata, params.selector, params)) };
   }
+
+  private _browserContextDispatcher(): BrowserContextDispatcher {
+    const scope = this.parentScope();
+    if (scope instanceof BrowserContextDispatcher)
+      return scope;
+    if (scope instanceof PageDispatcher)
+      return scope.parentScope();
+    if ((scope instanceof WorkerDispatcher) || (scope instanceof FrameDispatcher))  {
+      const parentScope = scope.parentScope();
+      if (parentScope instanceof BrowserContextDispatcher)
+        return parentScope;
+      return parentScope.parentScope();
+    }
+    throw new Error('ElementHandle belongs to unexpected scope');
+  }
+
 }

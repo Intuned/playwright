@@ -3,6 +3,8 @@ id: auth
 title: "Authentication"
 ---
 
+## Introduction
+
 Playwright executes tests in isolated environments called [browser contexts](./browser-contexts.md). This isolation model improves reproducibility and prevents cascading test failures. Tests can load existing authenticated state. This eliminates the need to authenticate in every test and speeds up test execution.
 
 ## Core concepts
@@ -110,6 +112,13 @@ test('test', async ({ page }) => {
   // page is authenticated
 });
 ```
+
+### Authenticating in UI mode
+* langs: js
+
+UI mode will not run the `setup` project by default to improve testing speed. We recommend to authenticate by manually running the `auth.setup.ts` from time to time, whenever existing authentication expires.
+
+First [enable the `setup` project in the filters](./test-ui-mode#filtering-tests), then click the triangle button next to `auth.setup.ts` file, and then disable the `setup` project in the filters again.
 
 
 ## Moderate: one account per parallel worker
@@ -254,7 +263,7 @@ existing authentication state instead.
 Playwright provides a way to reuse the signed-in state in the tests. That way you can log
 in only once and then skip the log in step for all of the tests.
 
-Web apps use cookie-based or token-based authentication, where authenticated state is stored as [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) or in [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage). Playwright provides [browserContext.storageState([options])](https://playwright.dev/docs/api/class-browsercontext#browser-context-storage-state) method that can be used to retrieve storage state from authenticated contexts and then create new contexts with pre-populated state.
+Web apps use cookie-based or token-based authentication, where authenticated state is stored as [cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies) or in [local storage](https://developer.mozilla.org/en-US/docs/Web/API/Storage). Playwright provides [`method: BrowserContext.storageState`] method that can be used to retrieve storage state from authenticated contexts and then create new contexts with pre-populated state.
 
 Cookies and local storage state can be used across different browsers. They depend on your application's authentication model: some apps might require both cookies and local storage.
 
@@ -287,15 +296,16 @@ context = browser.new_context(storage_state="state.json")
 
 ```csharp
 // Save storage state into the file.
+// Tests are executed in <TestProject>\bin\Debug\netX.0\ therefore relative path is used to reference playwright/.auth created in project root
 await context.StorageStateAsync(new()
 {
-    Path = "state.json"
+    Path = "../../../playwright/.auth/state.json"
 });
 
 // Create a new context with the saved storage state.
 var context = await browser.NewContextAsync(new()
 {
-    StorageStatePath = "state.json"
+    StorageStatePath = "../../../playwright/.auth/state.json"
 });
 ```
 
@@ -455,6 +465,8 @@ test.describe(() => {
 });
 ```
 
+See also about [authenticating in the UI mode](#authenticating-in-ui-mode).
+
 ### Testing multiple roles together
 * langs: js
 
@@ -573,7 +585,7 @@ Reusing authenticated state covers [cookies](https://developer.mozilla.org/en-US
 ```js
 // Get session storage and store as env variable
 const sessionStorage = await page.evaluate(() => JSON.stringify(sessionStorage));
-fs.writeFileSync('playwright/.auth/session.json', JSON.stringify(sessionStorage), 'utf-8');
+fs.writeFileSync('playwright/.auth/session.json', sessionStorage, 'utf-8');
 
 // Set session storage in a new context
 const sessionStorage = JSON.parse(fs.readFileSync('playwright/.auth/session.json', 'utf-8'));
@@ -653,4 +665,20 @@ await context.AddInitScriptAsync(@"(storage => {
       }
     }
   })('" + loadedSessionStorage + "')");
+```
+
+### Avoid authentication in some tests
+* langs: js
+
+You can reset storage state in a test file to avoid authentication that was set up for the whole project.
+
+```js title="not-signed-in.spec.ts"
+import { test } from '@playwright/test';
+
+// Reset storage state for this file to avoid being authenticated
+test.use({ storageState: { cookies: [], origins: [] } });
+
+test('not signed in test', async ({ page }) => {
+  // ...
+});
 ```

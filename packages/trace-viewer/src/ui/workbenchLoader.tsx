@@ -18,10 +18,10 @@ import { ToolbarButton } from '@web/components/toolbarButton';
 import * as React from 'react';
 import type { ContextEntry } from '../entries';
 import { MultiTraceModel } from './modelUtil';
-import './workbench.css';
+import './workbenchLoader.css';
 import { toggleTheme } from '@web/theme';
 import { Workbench } from './workbench';
-import { connect } from './wsPort';
+import { TestServerConnection } from '@testIsomorphic/testServerConnection';
 
 export const WorkbenchLoader: React.FunctionComponent<{
 }> = () => {
@@ -84,18 +84,16 @@ export const WorkbenchLoader: React.FunctionComponent<{
     }
 
     if (params.has('isServer')) {
-      connect({
-        onEvent(method: string, params?: any) {
-          if (method === 'loadTrace') {
-            setTraceURLs(params!.url ? [params!.url] : []);
-            setDragOver(false);
-            setProcessingErrorMessage(null);
-          }
-        },
-        onClose() {}
-      }).then(sendMessage => {
-        sendMessage('ready');
+      const guid = new URLSearchParams(window.location.search).get('ws');
+      const wsURL = new URL(`../${guid}`, window.location.toString());
+      wsURL.protocol = (window.location.protocol === 'https:' ? 'wss:' : 'ws:');
+      const testServerConnection = new TestServerConnection(wsURL.toString());
+      testServerConnection.onLoadTraceRequested(async params => {
+        setTraceURLs(params.traceUrl ? [params.traceUrl] : []);
+        setDragOver(false);
+        setProcessingErrorMessage(null);
       });
+      testServerConnection.initialize({}).catch(() => {});
     } else if (!newTraceURLs.some(url => url.startsWith('blob:'))) {
       // Don't re-use blob file URLs on page load (results in Fetch error)
       setTraceURLs(newTraceURLs);
@@ -137,9 +135,13 @@ export const WorkbenchLoader: React.FunctionComponent<{
     })();
   }, [isServer, traceURLs, uploadedTraceNames]);
 
-  return <div className='vbox workbench' onDragOver={event => { event.preventDefault(); setDragOver(true); }}>
-    <div className='hbox header'>
-      <div className='logo'>🎭</div>
+  const showFileUploadDropArea = !!(!isServer && !dragOver && !fileForLocalModeError && (!traceURLs.length || processingErrorMessage));
+
+  return <div className='vbox workbench-loader' onDragOver={event => { event.preventDefault(); setDragOver(true); }}>
+    <div className='hbox header' {...(showFileUploadDropArea ? { inert: 'true' } : {})}>
+      <div className='logo'>
+        <img src='playwright-logo.svg' alt='Playwright logo' />
+      </div>
       <div className='product'>Playwright</div>
       {model.title && <div className='title'>{model.title}</div>}
       <div className='spacer'></div>
@@ -148,7 +150,7 @@ export const WorkbenchLoader: React.FunctionComponent<{
     <div className='progress'>
       <div className='inner-progress' style={{ width: progress.total ? (100 * progress.done / progress.total) + '%' : 0 }}></div>
     </div>
-    <Workbench model={model} />
+    <Workbench model={model} inert={showFileUploadDropArea} />
     {fileForLocalModeError && <div className='drop-target'>
       <div>Trace Viewer uses Service Workers to show traces. To view trace:</div>
       <div style={{ paddingTop: 20 }}>
@@ -157,9 +159,9 @@ export const WorkbenchLoader: React.FunctionComponent<{
         <div>3. Drop the trace from the download shelf into the page</div>
       </div>
     </div>}
-    {!isServer && !dragOver && !fileForLocalModeError && (!traceURLs.length || processingErrorMessage) && <div className='drop-target'>
-      <div className='processing-error'>{processingErrorMessage}</div>
-      <div className='title'>Drop Playwright Trace to load</div>
+    {showFileUploadDropArea && <div className='drop-target'>
+      <div className='processing-error' role='alert'>{processingErrorMessage}</div>
+      <div className='title' role='heading' aria-level={1}>Drop Playwright Trace to load</div>
       <div>or</div>
       <button onClick={() => {
         const input = document.createElement('input');
@@ -167,7 +169,7 @@ export const WorkbenchLoader: React.FunctionComponent<{
         input.multiple = true;
         input.click();
         input.addEventListener('change', e => handleFileInputChange(e));
-      }}>Select file(s)</button>
+      }} type='button'>Select file(s)</button>
       <div style={{ maxWidth: 400 }}>Playwright Trace Viewer is a Progressive Web App, it does not send your trace anywhere,
         it opens it locally.</div>
     </div>}

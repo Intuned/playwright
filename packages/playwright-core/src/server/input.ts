@@ -18,6 +18,7 @@ import { assert } from '../utils';
 import * as keyboardLayout from './usKeyboardLayout';
 import type * as types from './types';
 import type { Page } from './page';
+import type { CallMetadata } from './instrumentation';
 
 export const keypadLocation = keyboardLayout.keypadLocation;
 
@@ -43,11 +44,9 @@ export class Keyboard {
   private _pressedModifiers = new Set<types.KeyboardModifier>();
   private _pressedKeys = new Set<string>();
   private _raw: RawKeyboard;
-  private _page: Page;
 
-  constructor(raw: RawKeyboard, page: Page) {
+  constructor(raw: RawKeyboard) {
     this._raw = raw;
-    this._page = page;
   }
 
   async down(key: string) {
@@ -60,7 +59,8 @@ export class Keyboard {
     await this._raw.keydown(this._pressedModifiers, description.code, description.keyCode, description.keyCodeWithoutLocation, description.key, description.location, autoRepeat, text);
   }
 
-  private _keyDescriptionForString(keyString: string): KeyDescription {
+  private _keyDescriptionForString(str: string): KeyDescription {
+    const keyString = resolveSmartModifierString(str);
     let description = usKeyboardLayout.get(keyString);
     assert(description, `Unknown key: "${keyString}"`);
     const shift = this._pressedModifiers.has('Shift');
@@ -114,43 +114,48 @@ export class Keyboard {
     }
 
     const tokens = split(key);
-    const promises = [];
     key = tokens[tokens.length - 1];
     for (let i = 0; i < tokens.length - 1; ++i)
-      promises.push(this.down(tokens[i]));
-    promises.push(this.down(key));
-    if (options.delay) {
-      await Promise.all(promises);
+      await this.down(tokens[i]);
+    await this.down(key);
+    if (options.delay)
       await new Promise(f => setTimeout(f, options.delay));
-    }
-    promises.push(this.up(key));
+    await this.up(key);
     for (let i = tokens.length - 2; i >= 0; --i)
-      promises.push(this.up(tokens[i]));
-    await Promise.all(promises);
+      await this.up(tokens[i]);
   }
 
-  async _ensureModifiers(modifiers: types.KeyboardModifier[]): Promise<types.KeyboardModifier[]> {
+  async ensureModifiers(mm: types.SmartKeyboardModifier[]): Promise<types.KeyboardModifier[]> {
+    const modifiers = mm.map(resolveSmartModifier);
     for (const modifier of modifiers) {
       if (!kModifiers.includes(modifier))
         throw new Error('Unknown modifier ' + modifier);
     }
     const restore: types.KeyboardModifier[] = Array.from(this._pressedModifiers);
-    const promises: Promise<void>[] = [];
     for (const key of kModifiers) {
       const needDown = modifiers.includes(key);
       const isDown = this._pressedModifiers.has(key);
       if (needDown && !isDown)
-        promises.push(this.down(key));
+        await this.down(key);
       else if (!needDown && isDown)
-        promises.push(this.up(key));
+        await this.up(key);
     }
-    await Promise.all(promises);
     return restore;
   }
 
   _modifiers(): Set<types.KeyboardModifier> {
     return this._pressedModifiers;
   }
+}
+
+export function resolveSmartModifierString(key: string): string {
+  if (key === 'ControlOrMeta')
+    return process.platform === 'darwin' ? 'Meta' : 'Control';
+  return key;
+}
+
+export function resolveSmartModifier(m: types.SmartKeyboardModifier): types.KeyboardModifier {
+  return resolveSmartModifierString(m) as types.KeyboardModifier;
 }
 
 export interface RawMouse {
@@ -175,7 +180,9 @@ export class Mouse {
     this._keyboard = this._page.keyboard;
   }
 
-  async move(x: number, y: number, options: { steps?: number, forClick?: boolean } = {}) {
+  async move(x: number, y: number, options: { steps?: number, forClick?: boolean } = {}, metadata?: CallMetadata) {
+    if (metadata)
+      metadata.point = { x, y };
     const { steps = 1 } = options;
     const fromX = this._x;
     const fromY = this._y;
@@ -188,21 +195,27 @@ export class Mouse {
     }
   }
 
-  async down(options: { button?: types.MouseButton, clickCount?: number } = {}) {
+  async down(options: { button?: types.MouseButton, clickCount?: number } = {}, metadata?: CallMetadata) {
+    if (metadata)
+      metadata.point = { x: this._x, y: this._y };
     const { button = 'left', clickCount = 1 } = options;
     this._lastButton = button;
     this._buttons.add(button);
     await this._raw.down(this._x, this._y, this._lastButton, this._buttons, this._keyboard._modifiers(), clickCount);
   }
 
-  async up(options: { button?: types.MouseButton, clickCount?: number } = {}) {
+  async up(options: { button?: types.MouseButton, clickCount?: number } = {}, metadata?: CallMetadata) {
+    if (metadata)
+      metadata.point = { x: this._x, y: this._y };
     const { button = 'left', clickCount = 1 } = options;
     this._lastButton = 'none';
     this._buttons.delete(button);
     await this._raw.up(this._x, this._y, button, this._buttons, this._keyboard._modifiers(), clickCount);
   }
 
-  async click(x: number, y: number, options: { delay?: number, button?: types.MouseButton, clickCount?: number } = {}) {
+  async click(x: number, y: number, options: { delay?: number, button?: types.MouseButton, clickCount?: number } = {}, metadata?: CallMetadata) {
+    if (metadata)
+      metadata.point = { x: this._x, y: this._y };
     const { delay = null, clickCount = 1 } = options;
     if (delay) {
       this.move(x, y, { forClick: true });
@@ -306,7 +319,9 @@ export class Touchscreen {
     this._page = page;
   }
 
-  async tap(x: number, y: number) {
+  async tap(x: number, y: number, metadata?: CallMetadata) {
+    if (metadata)
+      metadata.point = { x, y };
     if (!this._page._browserContext._options.hasTouch)
       throw new Error('hasTouch must be enabled on the browser context before using the touchscreen.');
     await this._raw.tap(x, y, this._page.keyboard._modifiers());

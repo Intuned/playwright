@@ -3,7 +3,9 @@ id: other-locators
 title: "Other locators"
 ---
 
-:::tip
+## Introduction
+
+:::note
 Check out the main [locators guide](./locators) for most common and recommended locators.
 :::
 
@@ -632,7 +634,9 @@ elements that can be selected by one of the selectors in that list.
 
 ```js
 // Waits for either confirmation dialog or load spinner.
-await page.locator(`//span[contains(@class, 'spinner__loading')]|//div[@id='confirmation']`).waitFor();
+await page.locator(
+    `//span[contains(@class, 'spinner__loading')]|//div[@id='confirmation']`
+).waitFor();
 ```
 
 ```java
@@ -722,7 +726,7 @@ expect(page.locator("label")).to_have_text("Password")
 
 ```csharp
 // Fill the input by targeting the label.
-await Expect(page.Locator("label")).ToHaveTextAsync("Password");
+await Expect(Page.Locator("label")).ToHaveTextAsync("Password");
 ```
 
 ## Legacy text locator
@@ -880,15 +884,10 @@ await page.Locator("data-test-id=submit").ClickAsync();
 Attribute selectors are not CSS selectors, so anything CSS-specific like `:enabled` is not supported. For more features, use a proper [css] selector, e.g. `css=[data-test="login"]:enabled`.
 :::
 
-:::note
-Attribute selectors pierce shadow DOM. To opt-out from this behavior, use `:light` suffix after attribute, for example `page.locator('data-test-id:light=submit').click()`
-:::
-
-
 ## Chaining selectors
 
 :::warning
-We recommend [chaining locators](./locators.md#chaining-locators) instead.
+We recommend [chaining locators](./locators.md#matching-inside-a-locator) instead.
 :::
 
 Selectors defined as `engine=body` or in short-form can be combined with the `>>` token, e.g. `selector1 >> selector2 >> selectors3`. When selectors are chained, the next one is queried relative to the previous one's result.

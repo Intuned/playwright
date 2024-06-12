@@ -19,11 +19,12 @@ import { PlaywrightServer } from '../../packages/playwright-core/lib/remote/play
 import { createGuid } from '../../packages/playwright-core/lib/utils/crypto';
 import { Backend } from '../config/debugControllerBackend';
 import type { Browser, BrowserContext } from '@playwright/test';
+import type * as channels from '@protocol/channels';
 
 type BrowserWithReuse = Browser & { _newContextForReuse: () => Promise<BrowserContext> };
 type Fixtures = {
   wsEndpoint: string;
-  backend: Backend;
+  backend: channels.DebugControllerChannel;
   connectedBrowserFactory: () => Promise<BrowserWithReuse>;
   connectedBrowser: BrowserWithReuse;
 };
@@ -40,19 +41,18 @@ const test = baseTest.extend<Fixtures>({
     const backend = new Backend();
     await backend.connect(wsEndpoint);
     await backend.initialize();
-    await use(backend);
+    await use(backend.channel);
     await backend.close();
   },
   connectedBrowserFactory: async ({ wsEndpoint, browserType }, use) => {
     const browsers: BrowserWithReuse [] = [];
     await use(async () => {
-      const oldValue = (browserType as any)._defaultConnectOptions;
-      (browserType as any)._defaultConnectOptions = {
-        wsEndpoint,
-        headers: { 'x-playwright-reuse-context': '1', },
-      };
-      const browser = await browserType.launch() as BrowserWithReuse;
-      (browserType as any)._defaultConnectOptions = oldValue;
+      const browser = await browserType.connect(wsEndpoint, {
+        headers: {
+          'x-playwright-launch-options': JSON.stringify((browserType as any)._defaultLaunchOptions),
+          'x-playwright-reuse-context': '1',
+        },
+      }) as BrowserWithReuse;
       browsers.push(browser);
       return browser;
     });
@@ -65,13 +65,13 @@ const test = baseTest.extend<Fixtures>({
 });
 
 test.slow(true, 'All controller tests are slow');
-test.skip(({ mode }) => mode === 'service');
+test.skip(({ mode }) => mode.startsWith('service'));
 
 test('should pick element', async ({ backend, connectedBrowser }) => {
   const events = [];
   backend.on('inspectRequested', event => events.push(event));
 
-  await backend.setMode({ mode: 'inspecting' });
+  await backend.setRecorderMode({ mode: 'inspecting' });
 
   const context = await connectedBrowser._newContextForReuse();
   const [page] = context.pages();
@@ -91,7 +91,7 @@ test('should pick element', async ({ backend, connectedBrowser }) => {
   ]);
 
   // No events after mode disabled
-  await backend.setMode({ mode: 'none' });
+  await backend.setRecorderMode({ mode: 'none' });
   await page.locator('body').click();
   expect(events).toHaveLength(2);
 });
@@ -164,7 +164,7 @@ test('should record', async ({ backend, connectedBrowser }) => {
   const events = [];
   backend.on('sourceChanged', event => events.push(event));
 
-  await backend.setMode({ mode: 'recording' });
+  await backend.setRecorderMode({ mode: 'recording' });
 
   const context = await connectedBrowser._newContextForReuse();
   const [page] = context.pages();
@@ -190,7 +190,7 @@ test('test', async ({ page }) => {
   });
   const length = events.length;
   // No events after mode disabled
-  await backend.setMode({ mode: 'none' });
+  await backend.setRecorderMode({ mode: 'none' });
   await page.getByRole('button').click();
   expect(events).toHaveLength(length);
 });
@@ -208,7 +208,7 @@ test('should record custom data-testid', async ({ backend, connectedBrowser }) =
   await page.setContent(`<div data-custom-id='one'>One</div>`);
 
   // 2. "Record at cursor".
-  await backend.setMode({ mode: 'recording', testIdAttributeName: 'data-custom-id' });
+  await backend.setRecorderMode({ mode: 'recording', testIdAttributeName: 'data-custom-id' });
 
   // 3. Record a click action.
   await page.locator('div').click();

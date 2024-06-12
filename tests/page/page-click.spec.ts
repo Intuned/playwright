@@ -455,6 +455,8 @@ it('should wait for stable position', async ({ page, server }) => {
     button.style.display = 'block';
     document.body.style.margin = '0';
   });
+  // rafraf for Firefox to kick in the animation.
+  await page.evaluate(() => new Promise(f => requestAnimationFrame(() => requestAnimationFrame(f))));
   await page.click('button');
   expect(await page.evaluate(() => window['result'])).toBe('Clicked');
   expect(await page.evaluate('pageX')).toBe(300);
@@ -860,9 +862,12 @@ it('should not hang when frame is detached', async ({ page, server, mode }) => {
 
   let resolveDetachPromise;
   const detachPromise = new Promise(resolve => resolveDetachPromise = resolve);
+  let firstTime = true;
   const __testHookBeforeStable = () => {
     // Detach the frame after "waiting for stable" has started.
-
+    if (!firstTime)
+      return;
+    firstTime = false;
     setTimeout(async () => {
       await detachFrame(page, 'frame1');
       resolveDetachPromise();
@@ -1117,4 +1122,27 @@ it('should click if opened select covers the button', async ({ page }) => {
   await page.click('select');
   await page.click('button');
   expect(await page.evaluate('window.__CLICKED')).toBe(42);
+});
+
+it('should fire contextmenu event on right click in correct order', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26515' });
+  it.fixme(browserName === 'chromium', 'mouseup is fired');
+  it.fixme(browserName === 'firefox', 'mouseup is fired');
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`
+    <button id="target">Click me</button>
+  `);
+  await page.evaluate(() => {
+    const logEvent = e => console.log(e.type);
+    document.addEventListener('mousedown', logEvent);
+    document.addEventListener('mouseup', logEvent);
+    document.addEventListener('contextmenu', logEvent);
+  });
+  const entries = [];
+  page.on('console', message => entries.push(message.text()));
+  await page.getByRole('button', { name: 'Click me' }).click({ button: 'right' });
+  await expect.poll(() => entries).toEqual([
+    'mousedown',
+    'contextmenu',
+  ]);
 });

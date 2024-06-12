@@ -36,7 +36,9 @@ module.exports = MyReporter;
 ```
 
 ```js tab=js-ts title="my-awesome-reporter.ts"
-import type { Reporter, FullConfig, Suite, TestCase, TestResult, FullResult } from '@playwright/test/reporter';
+import type {
+  Reporter, FullConfig, Suite, TestCase, TestResult, FullResult
+} from '@playwright/test/reporter';
 
 class MyReporter implements Reporter {
   constructor(options: { customOption?: string } = {}) {
@@ -85,6 +87,15 @@ and [`method: Reporter.onError`] is called when something went wrong outside of 
 
 If your custom reporter does not print anything to the terminal, implement [`method: Reporter.printsToStdio`] and return `false`. This way, Playwright will use one of the standard terminal reporters in addition to your custom reporter to enhance user experience.
 
+**Merged report API notes**
+
+When merging multiple [`blob`](../test-reporters#blob-reporter) reports via [`merge-reports`](../test-sharding#merge-reports-cli) CLI
+command, the same [Reporter] API is called to produce final reports and all existing reporters
+should work without any changes. There some subtle differences though which might affect some custom
+reporters.
+
+* Projects from different shards are always kept as separate [TestProject] objects. E.g. if project 'Desktop Chrome' was sharded across 5 machines then there will be 5 instances of projects with the same name in the config passed to [`method: Reporter.onBegin`].
+
 ## optional method: Reporter.onBegin
 * since: v1.10
 
@@ -92,7 +103,7 @@ Called once before running tests. All tests have been already discovered and put
 
 ### param: Reporter.onBegin.config
 * since: v1.10
-- `config` <[TestConfig]>
+- `config` <[FullConfig]>
 
 Resolved configuration.
 
@@ -104,15 +115,20 @@ The root suite that contains all projects, files and test cases.
 
 ## optional async method: Reporter.onEnd
 * since: v1.10
+- `result` ?<[Object]>
+  - `status` ?<[FullStatus]<"passed"|"failed"|"timedout"|"interrupted">>
 
-Called after all tests has been run, or testing has been interrupted. Note that this method may return a [Promise] and Playwright Test will await it.
+Called after all tests have been run, or testing has been interrupted. Note that this method may return a [Promise] and Playwright Test will await it.
+Reporter is allowed to override the status and hence affect the exit code of the test runner.
 
 ### param: Reporter.onEnd.result
 * since: v1.10
 - `result` <[Object]>
-  - `status` <[FullStatus]<"passed"|"failed"|"timedout"|"interrupted">>
+  - `status` <[FullStatus]<"passed"|"failed"|"timedout"|"interrupted">> Test run status.
+  - `startTime` <[Date]> Test run start wall time.
+  - `duration` <[int]> Test run duration in milliseconds.
 
-Result of the full test run.
+Result of the full test run, `status` can be one of:
 * `'passed'` - Everything went as expected.
 * `'failed'` - Any test has failed.
 * `'timedout'` - The [`property: TestConfig.globalTimeout`] has been reached.

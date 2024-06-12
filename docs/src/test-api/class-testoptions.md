@@ -159,6 +159,7 @@ export default defineConfig({
   - `wsEndpoint` <[string]> A browser websocket endpoint to connect to.
   - `headers` ?<[void]|[Object]<[string], [string]>> Additional HTTP headers to be sent with web socket connect request. Optional.
   - `timeout` ?<[int]> Timeout in milliseconds for the connection to be established. Optional, defaults to no timeout.
+  - `exposeNetwork` ?<[string]> Option to expose network available on the connecting client to the browser being connected to. See [`method: BrowserType.connect`] for more details.
 
 
 **Usage**
@@ -346,6 +347,10 @@ export default defineConfig({
 
 Options used to launch the browser, as passed to [`method: BrowserType.launch`]. Specific options [`property: TestOptions.headless`] and [`property: TestOptions.channel`] take priority over this.
 
+:::warning
+Use custom browser args at your own risk, as some of them may break Playwright functionality.
+:::
+
 **Usage**
 
 ```js title="playwright.config.ts"
@@ -475,7 +480,7 @@ export default defineConfig({
 });
 ```
 
-Learn more about [automatic screenshots](../test-configuration.md#automatic-screenshots).
+Learn more about [automatic screenshots](../test-use-options.md#recording-options).
 
 ## property: TestOptions.storageState = %%-js-python-context-option-storage-state-%%
 * since: v1.10
@@ -489,6 +494,21 @@ export default defineConfig({
   use: {
     storageState: 'storage-state.json',
   },
+});
+```
+
+**Details**
+
+When storage state is set up in the config, it is possible to reset storage state for a file:
+
+```js title="not-signed-in.spec.ts"
+import { test } from '@playwright/test';
+
+// Reset storage state for this file to avoid being authenticated
+test.use({ storageState: { cookies: [], origins: [] } });
+
+test('not signed in test', async ({ page }) => {
+  // ...
 });
 ```
 
@@ -526,8 +546,8 @@ export default defineConfig({
 
 ## property: TestOptions.trace
 * since: v1.10
-- type: <[Object]|[TraceMode]<"off"|"on"|"retain-on-failure"|"on-first-retry">>
-  - `mode` <[TraceMode]<"off"|"on"|"retain-on-failure"|"on-first-retry"|"on-all-retries">> Trace recording mode.
+- type: <[Object]|[TraceMode]<"off"|"on"|"retain-on-failure"|"on-first-retry"|"retain-on-first-failure">>
+  - `mode` <[TraceMode]<"off"|"on"|"retain-on-failure"|"on-first-retry"|"on-all-retries"|"retain-on-first-failure">> Trace recording mode.
   - `attachments` ?<[boolean]> Whether to include test attachments. Defaults to true. Optional.
   - `screenshots` ?<[boolean]> Whether to capture screenshots during tracing. Screenshots are used to build a timeline preview. Defaults to true. Optional.
   - `snapshots` ?<[boolean]> Whether to capture DOM snapshot on every action. Defaults to true. Optional.
@@ -536,9 +556,10 @@ export default defineConfig({
 Whether to record trace for each test. Defaults to `'off'`.
 * `'off'`: Do not record trace.
 * `'on'`: Record trace for each test.
-* `'retain-on-failure'`: Record trace for each test, but remove all traces from successful test runs.
 * `'on-first-retry'`: Record trace only when retrying a test for the first time.
-* `'on-all-retries'`: Record traces only when retrying for all retries.
+* `'on-all-retries'`: Record trace only when retrying a test.
+* `'retain-on-failure'`: Record trace for each test. When test run passes, remove the recorded trace.
+* `'retain-on-first-failure'`: Record trace for the first run of each test, but not for retires. When test run passes, remove the recorded trace.
 
 For more control, pass an object that specifies `mode` and trace features to enable.
 
@@ -554,7 +575,7 @@ export default defineConfig({
 });
 ```
 
-Learn more about [recording trace](../test-configuration.md#record-test-trace).
+Learn more about [recording trace](../test-use-options.md#recording-options).
 
 ## property: TestOptions.userAgent = %%-context-option-useragent-%%
 * since: v1.10
@@ -599,7 +620,7 @@ export default defineConfig({
 });
 ```
 
-Learn more about [recording video](../test-configuration.md#record-video).
+Learn more about [recording video](../test-use-options.md#recording-options).
 
 ## property: TestOptions.viewport = %%-context-option-viewport-%%
 * since: v1.10

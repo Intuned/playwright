@@ -80,14 +80,14 @@ npx playwright test --debug
 ```
 #### Debug one test on all browsers
 
-To debug one test on a specific line run the test command followed by the name of the test file and the line number of the test you want to debug, followed by the `--debug` flag. This will run a single test in each browser configured in your [`playwright.config`](/test-configuration.md#multiple-browsers) and open the inspector.
+To debug one test on a specific line run the test command followed by the name of the test file and the line number of the test you want to debug, followed by the `--debug` flag. This will run a single test in each browser configured in your [`playwright.config`](./test-projects.md#configure-projects-for-multiple-browsers) and open the inspector.
 
 ```bash
 npx playwright test example.spec.ts:10 --debug
 ```
 #### Debug on a specific browser
 
-In Playwright you can configure projects in your [`playwright.config`](/test-configuration.md#multiple-browsers). Once configured you can then debug your tests on a specific browser or mobile viewport using the `--project` flag followed by the name of the project configured in your `playwright.config`.
+In Playwright you can configure projects in your [`playwright.config`](./test-projects.md#configure-projects-for-multiple-browsers). Once configured you can then debug your tests on a specific browser or mobile viewport using the `--project` flag followed by the name of the project configured in your `playwright.config`.
 
 ```bash
 npx playwright test --project=chromium --debug
@@ -238,6 +238,7 @@ When running in Debug Mode with `PWDEBUG=console`, a `playwright` object is avai
 - **See console logs** during execution (or learn how to [read logs via API](./api/class-page.md#page-event-console))
 - Check **network activity** and other developer tools features
 
+This will also set the default timeouts of Playwright to 0 (= no timeout).
 
 <img width="1399" alt="Browser Developer Tools with Playwright object" src="https://user-images.githubusercontent.com/13063165/219128002-898f604d-9697-4b7f-95b5-a6a8260b7282.png" />
 
@@ -368,22 +369,6 @@ Locator ()
   - element: button
   - elements: [button]
 ```
-
-#### playwright.highlight(selector)
-
-Highlight the first occurrence of the locator:
-
-```bash
-playwright.highlight('.auth-form');
-```
-
-#### playwright.clear()
-
-```bash
-playwright.clear()
-```
-
-Clear existing highlights.
 
 #### playwright.selector(element)
 

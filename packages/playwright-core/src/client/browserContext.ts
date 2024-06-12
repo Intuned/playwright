@@ -20,6 +20,7 @@ import { Frame } from './frame';
 import * as network from './network';
 import type * as channels from '@protocol/channels';
 import fs from 'fs';
+import path from 'path';
 import { ChannelOwner } from './channelOwner';
 import { evaluationScript } from './clientHelper';
 import { Browser } from './browser';
@@ -41,10 +42,12 @@ import { rewriteErrorMessage } from '../utils/stackTrace';
 import { HarRouter } from './harRouter';
 import { ConsoleMessage } from './consoleMessage';
 import { Dialog } from './dialog';
+import { WebError } from './webError';
+import { TargetClosedError, parseError } from './errors';
 
 export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel> implements api.BrowserContext {
   _pages = new Set<Page>();
-  private _routes: network.RouteHandler[] = [];
+  _routes: network.RouteHandler[] = [];
   readonly _browser: Browser | null = null;
   _browserType: BrowserType | undefined;
   readonly _bindings = new Map<string, (source: structs.BindingSource, ...args: any[]) => any>();
@@ -59,7 +62,9 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
   readonly _serviceWorkers = new Set<Worker>();
   readonly _isChromium: boolean;
   private _harRecorders = new Map<string, { path: string, content: 'embed' | 'attach' | 'omit' | undefined }>();
-  private _closeWasCalled = false;
+  _closeWasCalled = false;
+  private _closeReason: string | undefined;
+  private _harRouters: HarRouter[] = [];
 
   static from(context: channels.BrowserContextChannel): BrowserContext {
     return (context as any)._object;
@@ -93,12 +98,19 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
       this._serviceWorkers.add(serviceWorker);
       this.emit(Events.BrowserContext.ServiceWorker, serviceWorker);
     });
-    this._channel.on('console', ({ message }) => {
-      const consoleMessage = ConsoleMessage.from(message);
+    this._channel.on('console', event => {
+      const consoleMessage = new ConsoleMessage(event);
       this.emit(Events.BrowserContext.Console, consoleMessage);
       const page = consoleMessage.page();
       if (page)
         page.emit(Events.Page.Console, consoleMessage);
+    });
+    this._channel.on('pageError', ({ error, page }) => {
+      const pageObject = Page.from(page);
+      const parsedError = parseError(error);
+      this.emit(Events.BrowserContext.WebError, new WebError(pageObject, parsedError));
+      if (pageObject)
+        pageObject.emit(Events.Page.PageError, parsedError);
     });
     this._channel.on('dialog', ({ dialog }) => {
       const dialogObject = Dialog.from(dialog);
@@ -181,19 +193,29 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
   }
 
   async _onRoute(route: network.Route) {
+    route._context = this;
+    const page = route.request()._safePage();
     const routeHandlers = this._routes.slice();
     for (const routeHandler of routeHandlers) {
+      // If the page or the context was closed we stall all requests right away.
+      if (page?._closeWasCalled || this._closeWasCalled)
+        return;
       if (!routeHandler.matches(route.request().url()))
         continue;
+      const index = this._routes.indexOf(routeHandler);
+      if (index === -1)
+        continue;
       if (routeHandler.willExpire())
-        this._routes.splice(this._routes.indexOf(routeHandler), 1);
+        this._routes.splice(index, 1);
       const handled = await routeHandler.handle(route);
       if (!this._routes.length)
         this._wrapApiCall(() => this._updateInterceptionPatterns(), true).catch(() => {});
       if (handled)
         return;
     }
-    await route._innerContinue(true);
+    // If the page is closed or unrouteAll() was called without waiting and interception disabled,
+    // the method will throw an error - silence it.
+    await route._innerContinue(true).catch(() => {});
   }
 
   async _onBinding(bindingCall: BindingCall) {
@@ -243,8 +265,18 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
     await this._channel.addCookies({ cookies });
   }
 
-  async clearCookies(): Promise<void> {
-    await this._channel.clearCookies();
+  async clearCookies(options: network.ClearNetworkCookieOptions = {}): Promise<void> {
+    await this._channel.clearCookies({
+      name: isString(options.name) ? options.name : undefined,
+      nameRegexSource: isRegExp(options.name) ? options.name.source : undefined,
+      nameRegexFlags: isRegExp(options.name) ? options.name.flags : undefined,
+      domain: isString(options.domain) ? options.domain : undefined,
+      domainRegexSource: isRegExp(options.domain) ? options.domain.source : undefined,
+      domainRegexFlags: isRegExp(options.domain) ? options.domain.flags : undefined,
+      path: isString(options.path) ? options.path : undefined,
+      pathRegexSource: isRegExp(options.path) ? options.path.source : undefined,
+      pathRegexFlags: isRegExp(options.path) ? options.path.flags : undefined,
+    });
   }
 
   async grantPermissions(permissions: string[], options?: { origin?: string }): Promise<void> {
@@ -312,12 +344,39 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
       return;
     }
     const harRouter = await HarRouter.create(this._connection.localUtils(), har, options.notFound || 'abort', { urlMatch: options.url });
-    harRouter.addContextRoute(this);
+    this._harRouters.push(harRouter);
+    await harRouter.addContextRoute(this);
+  }
+
+  private _disposeHarRouters() {
+    this._harRouters.forEach(router => router.dispose());
+    this._harRouters = [];
+  }
+
+  async unrouteAll(options?: { behavior?: 'wait'|'ignoreErrors'|'default' }): Promise<void> {
+    await this._unrouteInternal(this._routes, [], options?.behavior);
+    this._disposeHarRouters();
   }
 
   async unroute(url: URLMatch, handler?: network.RouteHandlerCallback): Promise<void> {
-    this._routes = this._routes.filter(route => !urlMatchesEqual(route.url, url) || (handler && route.handler !== handler));
+    const removed = [];
+    const remaining = [];
+    for (const route of this._routes) {
+      if (urlMatchesEqual(route.url, url) && (!handler || route.handler === handler))
+        removed.push(route);
+      else
+        remaining.push(route);
+    }
+    await this._unrouteInternal(removed, remaining, 'default');
+  }
+
+  private async _unrouteInternal(removed: network.RouteHandler[], remaining: network.RouteHandler[], behavior?: 'wait'|'ignoreErrors'|'default'): Promise<void> {
+    this._routes = remaining;
     await this._updateInterceptionPatterns();
+    if (!behavior || behavior === 'default')
+      return;
+    const promises = removed.map(routeHandler => routeHandler.stop(behavior));
+    await Promise.all(promises);
   }
 
   private async _updateInterceptionPatterns() {
@@ -325,14 +384,18 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
     await this._channel.setNetworkInterceptionPatterns({ patterns });
   }
 
+  _effectiveCloseReason(): string | undefined {
+    return this._closeReason || this._browser?._closeReason;
+  }
+
   async waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions = {}): Promise<any> {
-    return this._wrapApiCall(async () => {
+    return await this._wrapApiCall(async () => {
       const timeout = this._timeoutSettings.timeout(typeof optionsOrPredicate === 'function'  ? {} : optionsOrPredicate);
       const predicate = typeof optionsOrPredicate === 'function'  ? optionsOrPredicate : optionsOrPredicate.predicate;
       const waiter = Waiter.createForEvent(this, event);
       waiter.rejectOnTimeout(timeout, `Timeout ${timeout}ms exceeded while waiting for event "${event}"`);
       if (event !== Events.BrowserContext.Close)
-        waiter.rejectOnEvent(this, Events.BrowserContext.Close, new Error('Context closed'));
+        waiter.rejectOnEvent(this, Events.BrowserContext.Close, () => new TargetClosedError(this._effectiveCloseReason()));
       const result = await waiter.waitForEvent(this, event, predicate as any);
       waiter.dispose();
       return result;
@@ -368,12 +431,19 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
     if (this._browser)
       this._browser._contexts.delete(this);
     this._browserType?._contexts?.delete(this);
+    this._disposeHarRouters();
+    this.tracing._resetStackCounter();
     this.emit(Events.BrowserContext.Close, this);
   }
 
-  async close(): Promise<void> {
+  async [Symbol.asyncDispose]() {
+    await this.close();
+  }
+
+  async close(options: { reason?: string } = {}): Promise<void> {
     if (this._closeWasCalled)
       return;
+    this._closeReason = options.reason;
     this._closeWasCalled = true;
     await this._wrapApiCall(async () => {
       await this._browserType?._willCloseContext(this);
@@ -392,7 +462,7 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
         await artifact.delete();
       }
     }, true);
-    await this._channel.close();
+    await this._channel.close(options);
     await this._closedPromise;
   }
 
@@ -471,6 +541,7 @@ export async function prepareBrowserContextParams(options: BrowserContextOptions
     colorScheme: options.colorScheme === null ? 'no-override' : options.colorScheme,
     reducedMotion: options.reducedMotion === null ? 'no-override' : options.reducedMotion,
     forcedColors: options.forcedColors === null ? 'no-override' : options.forcedColors,
+    acceptDownloads: toAcceptDownloadsProtocol(options.acceptDownloads),
   };
   if (!contextParams.recordVideo && options.videosPath) {
     contextParams.recordVideo = {
@@ -478,5 +549,15 @@ export async function prepareBrowserContextParams(options: BrowserContextOptions
       size: options.videoSize
     };
   }
+  if (contextParams.recordVideo && contextParams.recordVideo.dir)
+    contextParams.recordVideo.dir = path.resolve(process.cwd(), contextParams.recordVideo.dir);
   return contextParams;
+}
+
+function toAcceptDownloadsProtocol(acceptDownloads?: boolean) {
+  if (acceptDownloads === undefined)
+    return undefined;
+  if (acceptDownloads)
+    return 'accept';
+  return 'deny';
 }

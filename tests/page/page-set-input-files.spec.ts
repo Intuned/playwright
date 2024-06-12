@@ -37,10 +37,30 @@ it('should upload the file', async ({ page, server, asset }) => {
   }, input)).toBe('contents of the file');
 });
 
-it('should upload large file', async ({ page, server, browserName, isMac, isAndroid }, testInfo) => {
+it('should upload a file after popup', async ({ page, server, asset, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29923' });
+  it.fixme(browserName === 'firefox');
+  await page.goto(server.PREFIX + '/input/fileupload.html');
+  {
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.evaluate(() => window['__popup'] = window.open('about:blank')),
+    ]);
+    await popup.close();
+  }
+  const filePath = path.relative(process.cwd(), asset('file-to-upload.txt'));
+  const input = await page.$('input');
+  await input.setInputFiles(filePath);
+  expect(await page.evaluate(e => e.files[0].name, input)).toBe('file-to-upload.txt');
+});
+
+it('should upload large file', async ({ page, server, browserName, isMac, isAndroid, isWebView2, mode }, testInfo) => {
   it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
   it.skip(isAndroid);
+  it.skip(isWebView2);
+  it.skip(mode.startsWith('service'));
   it.slow();
+
   await page.goto(server.PREFIX + '/input/fileupload.html');
   const uploadFile = testInfo.outputPath('200MB.zip');
   const str = 'A'.repeat(4 * 1024);
@@ -85,10 +105,21 @@ it('should upload large file', async ({ page, server, browserName, isMac, isAndr
   await Promise.all([uploadFile, file1.filepath].map(fs.promises.unlink));
 });
 
-it('should upload multiple large files', async ({ page, server, browserName, isMac, isAndroid }, testInfo) => {
+it('should throw an error if the file does not exist', async ({ page, server, asset }) => {
+  await page.goto(server.PREFIX + '/input/fileupload.html');
+  const input = await page.$('input');
+  const error = await input.setInputFiles('i actually do not exist.txt').catch(e => e);
+  expect(error.message).toContain('ENOENT: no such file or directory');
+  expect(error.message).toContain('i actually do not exist.txt');
+});
+
+it('should upload multiple large files', async ({ page, server, browserName, isMac, isAndroid, isWebView2, mode }, testInfo) => {
   it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
   it.skip(isAndroid);
+  it.skip(isWebView2);
+  it.skip(mode.startsWith('service'));
   it.slow();
+
   const filesCount = 10;
   await page.goto(server.PREFIX + '/input/fileupload-multi.html');
   const uploadFile = testInfo.outputPath('50MB_1.zip');
@@ -123,10 +154,13 @@ it('should upload multiple large files', async ({ page, server, browserName, isM
   await Promise.all(uploadFiles.map(path => fs.promises.unlink(path)));
 });
 
-it('should upload large file with relative path', async ({ page, server, browserName, isMac, isAndroid }, testInfo) => {
+it('should upload large file with relative path', async ({ page, server, browserName, isMac, isAndroid, isWebView2, mode }, testInfo) => {
   it.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
   it.skip(isAndroid);
+  it.skip(isWebView2);
+  it.skip(mode.startsWith('service'));
   it.slow();
+
   await page.goto(server.PREFIX + '/input/fileupload.html');
   const uploadFile = testInfo.outputPath('200MB.zip');
   const str = 'A'.repeat(4 * 1024);
@@ -524,6 +558,41 @@ it('should emit input and change events', async ({ page, asset }) => {
   expect(events[1].type).toBe('change');
 });
 
+it('input event.composed should be true and cross shadow dom boundary', async ({ page, server, asset }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28726' });
+  await page.goto(server.EMPTY_PAGE);
+  await page.setContent(`<body><script>
+  const div = document.createElement('div');
+  const shadowRoot = div.attachShadow({mode: 'open'});
+  shadowRoot.innerHTML = '<input type=file></input>';
+  document.body.appendChild(div);
+</script></body>`);
+  await page.locator('body').evaluate(select => {
+    (window as any).firedBodyEvents = [];
+    for (const event of ['input', 'change']) {
+      select.addEventListener(event, e => {
+        (window as any).firedBodyEvents.push(e.type + ':' + e.composed);
+      }, false);
+    }
+  });
+
+  await page.locator('input').evaluate(select => {
+    (window as any).firedEvents = [];
+    for (const event of ['input', 'change']) {
+      select.addEventListener(event, e => {
+        (window as any).firedEvents.push(e.type + ':' + e.composed);
+      }, false);
+    }
+  });
+  await page.locator('input').setInputFiles({
+    name: 'test.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('this is a test')
+  });
+  expect(await page.evaluate(() => window['firedEvents'])).toEqual(['input:true', 'change:false']);
+  expect(await page.evaluate(() => window['firedBodyEvents'])).toEqual(['input:true']);
+});
+
 it('should work for single file pick', async ({ page, server }) => {
   await page.setContent(`<input type=file>`);
   const [fileChooser] = await Promise.all([
@@ -607,4 +676,19 @@ it('input should trigger events when files changed second time', async ({ page, 
   await input.setInputFiles(asset('pptr.png'));
   expect(await input.evaluate(e => (e as HTMLInputElement).files[0].name)).toBe('pptr.png');
   expect(await events.evaluate(e => e)).toEqual(['input', 'change']);
+});
+
+it('should preserve lastModified timestamp', async ({ page, asset }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27452' });
+  await page.setContent(`<input type=file multiple=true/>`);
+  const input = page.locator('input');
+  const files = ['file-to-upload.txt', 'file-to-upload-2.txt'];
+  await input.setInputFiles(files.map(f => asset(f)));
+  expect(await input.evaluate(e => [...(e as HTMLInputElement).files].map(f => f.name))).toEqual(files);
+  const timestamps = await input.evaluate(e => [...(e as HTMLInputElement).files].map(f => f.lastModified));
+  const expectedTimestamps = files.map(file => Math.round(fs.statSync(asset(file)).mtimeMs));
+  // On Linux browser sometimes reduces the timestamp by 1ms: 1696272058110.0715  -> 1696272058109 or even
+  // rounds it to seconds in WebKit: 1696272058110 -> 1696272058000.
+  for (let i = 0; i < timestamps.length; i++)
+    expect(Math.abs(timestamps[i] - expectedTimestamps[i]), `expected: ${expectedTimestamps}; actual: ${timestamps}`).toBeLessThan(1000);
 });

@@ -4,6 +4,291 @@ title: "Release notes"
 toc_max_heading_level: 2
 ---
 
+## Version 1.44
+
+### New APIs
+
+**Accessibility assertions**
+
+- [`method: LocatorAssertions.toHaveAccessibleName`] checks if the element has the specified accessible name:
+  ```python
+  locator = page.get_by_role("button")
+  expect(locator).to_have_accessible_name("Submit")
+  ```
+
+- [`method: LocatorAssertions.toHaveAccessibleDescription`] checks if the element has the specified accessible description:
+  ```python
+  locator = page.get_by_role("button")
+  expect(locator).to_have_accessible_description("Upload a photo")
+  ```
+
+- [`method: LocatorAssertions.toHaveRole`] checks if the element has the specified ARIA role:
+  ```python
+  locator = page.get_by_test_id("save-button")
+  expect(locator).to_have_role("button")
+  ```
+
+**Locator handler**
+
+- After executing the handler added with [`method: Page.addLocatorHandler`], Playwright will now wait until the overlay that triggered the handler is not visible anymore. You can opt-out of this behavior with the new `no_wait_after` option.
+- You can use new `times` option in [`method: Page.addLocatorHandler`] to specify maximum number of times the handler should be run.
+- The handler in [`method: Page.addLocatorHandler`] now accepts the locator as argument.
+- New [`method: Page.removeLocatorHandler`] method for removing previously added locator handlers.
+
+```python
+locator = page.get_by_text("This interstitial covers the button")
+page.add_locator_handler(locator, lambda overlay: overlay.locator("#close").click(), times=3, no_wait_after=True)
+# Run your tests that can be interrupted by the overlay.
+# ...
+page.remove_locator_handler(locator)
+```
+
+**Miscellaneous options**
+
+- [`method: PageAssertions.toHaveURL`] now supports `ignore_case` [option](./api/class-pageassertions#page-assertions-to-have-url-option-ignore-case).
+
+### Browser Versions
+
+* Chromium 125.0.6422.14
+* Mozilla Firefox 125.0.1
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 124
+* Microsoft Edge 124
+
+## Version 1.43
+
+### New APIs
+
+- Method [`method: BrowserContext.clearCookies`] now supports filters to remove only some cookies.
+
+  ```python
+  # Clear all cookies.
+  context.clear_cookies()
+  # New: clear cookies with a particular name.
+  context.clear_cookies(name="session-id")
+  # New: clear cookies for a particular domain.
+  context.clear_cookies(domain="my-origin.com")
+  ```
+
+- New method [`method: Locator.contentFrame`] converts a [Locator] object to a [FrameLocator]. This can be useful when you have a [Locator] object obtained somewhere, and later on would like to interact with the content inside the frame.
+
+  ```python
+  locator = page.locator("iframe[name='embedded']")
+  # ...
+  frame_locator = locator.content_frame
+  frame_locator.getByRole("button").click()
+  ```
+
+- New method [`method: FrameLocator.owner`] converts a [FrameLocator] object to a [Locator]. This can be useful when you have a [FrameLocator] object obtained somewhere, and later on would like to interact with the `iframe` element.
+
+  ```python
+  frame_locator = page.frame_locator("iframe[name='embedded']")
+  # ...
+  locator = frame_locator.owner
+  expect(locator).to_be_visible()
+  ```
+
+- Conda builds are now published for macOS-arm64 and Linux-arm64.
+
+### Browser Versions
+
+* Chromium 124.0.6367.8
+* Mozilla Firefox 124.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 123
+* Microsoft Edge 123
+
+## Version 1.42
+
+### New Locator Handler
+
+New method [`method: Page.addLocatorHandler`] registers a callback that will be invoked when specified element becomes visible and may block Playwright actions. The callback can get rid of the overlay. Here is an example that closes a cookie dialog when it appears.
+  
+```python
+# Setup the handler.
+page.add_locator_handler(
+    page.get_by_role("heading", name="Hej! You are in control of your cookies."),
+    lambda: page.get_by_role("button", name="Accept all").click(),
+)
+# Write the test as usual.
+page.goto("https://www.ikea.com/")
+page.get_by_role("link", name="Collection of blue and white").click()
+expect(page.get_by_role("heading", name="Light and easy")).to_be_visible()
+```
+
+### New APIs
+
+- [`method: Page.pdf`] accepts two new options [`option: tagged`] and [`option: outline`].
+
+### Announcements
+
+* ⚠️ Ubuntu 18 is not supported anymore.
+
+### Browser Versions
+
+* Chromium 123.0.6312.4
+* Mozilla Firefox 123.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 122
+* Microsoft Edge 123
+
+## Version 1.41
+
+### New APIs
+
+- New method [`method: Page.unrouteAll`] removes all routes registered by [`method: Page.route`] and [`method: Page.routeFromHAR`]. Optionally allows to wait for ongoing routes to finish, or ignore any errors from them.
+- New method [`method: BrowserContext.unrouteAll`] removes all routes registered by [`method: BrowserContext.route`] and [`method: BrowserContext.routeFromHAR`]. Optionally allows to wait for ongoing routes to finish, or ignore any errors from them.
+- New option [`option: style`] in [`method: Page.screenshot`] and [`method: Locator.screenshot`] to add custom CSS to the page before taking a screenshot.
+
+### Browser Versions
+
+* Chromium 121.0.6167.57
+* Mozilla Firefox 121.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 120
+* Microsoft Edge 120
+
+## Version 1.40
+
+### Test Generator Update
+
+![Playwright Test Generator](https://github.com/microsoft/playwright/assets/9881434/e8d67e2e-f36d-4301-8631-023948d3e190)
+
+New tools to generate assertions:
+- "Assert visibility" tool generates [`method: LocatorAssertions.toBeVisible`].
+- "Assert value" tool generates [`method: LocatorAssertions.toHaveValue`].
+- "Assert text" tool generates [`method: LocatorAssertions.toContainText`].
+
+Here is an example of a generated test with assertions:
+
+```python
+from playwright.sync_api import Page, expect
+
+def test_example(page: Page) -> None:
+    page.goto("https://playwright.dev/")
+    page.get_by_role("link", name="Get started").click()
+    expect(page.get_by_label("Breadcrumbs").get_by_role("list")).to_contain_text("Installation")
+    expect(page.get_by_label("Search")).to_be_visible()
+    page.get_by_label("Search").click()
+    page.get_by_placeholder("Search docs").fill("locator")
+    expect(page.get_by_placeholder("Search docs")).to_have_value("locator");
+```
+
+### New APIs
+
+- Option [`option: reason`] in [`method: Page.close`], [`method: BrowserContext.close`] and [`method: Browser.close`]. Close reason is reported for all operations interrupted by the closure.
+- Option [`option: firefoxUserPrefs`] in [`method: BrowserType.launchPersistentContext`].
+
+### Other Changes
+
+- Method [`method: Download.path`] throws an error for failed and cancelled downloads.
+
+### Browser Versions
+
+* Chromium 120.0.6099.28
+* Mozilla Firefox 119.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 119
+* Microsoft Edge 119
+
+## Version 1.39
+
+Evergreen browsers update.
+
+### Browser Versions
+
+* Chromium 119.0.6045.9
+* Mozilla Firefox 118.0.1
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 118
+* Microsoft Edge 118
+
+## Version 1.38
+
+### Trace Viewer Updates
+
+![Playwright Trace Viewer](https://github.com/microsoft/playwright/assets/746130/0c41e20d-c54b-4600-8ca8-1cbb6393ddef)
+
+1. Zoom into time range.
+1. Network panel redesign.
+
+### New APIs
+
+- [`event: BrowserContext.webError`]
+- [`method: Locator.pressSequentially`]
+
+### Deprecations
+
+* The following methods were deprecated: [`method: Page.type`], [`method: Frame.type`],
+  [`method: Locator.type`] and [`method: ElementHandle.type`].
+  Please use [`method: Locator.fill`] instead which is much faster. Use
+  [`method: Locator.pressSequentially`] only if there is a special keyboard
+  handling on the page, and you need to press keys one-by-one.
+
+### Browser Versions
+
+* Chromium 117.0.5938.62
+* Mozilla Firefox 117.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 116
+* Microsoft Edge 116
+
+## Version 1.37
+
+### Highlights
+
+* New [--full-page-screenshot](./test-runners.md#cli-arguments) command line flag allows taking a
+full page screenshot on failure.
+
+* It is now possible to override the context options for a single test by using the [browser_context_args](./test-runners.md#fixtures) marker.
+
+* `pytest-playwright` is now also getting published [on Anaconda](https://anaconda.org/Microsoft/pytest-playwright/)
+
+### 📚 Debian 12 Bookworm Support
+
+Playwright now supports Debian 12 Bookworm on both x86_64 and arm64 for Chromium, Firefox and WebKit.
+Let us know if you encounter any issues!
+
+Linux support looks like this:
+
+|          | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11 | Debian 12 |
+| :--- | :---: | :---: | :---: | :---: |
+| Chromium | ✅ | ✅ | ✅ | ✅ |
+| WebKit | ✅ | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ✅ | ✅ |
+
+### Browser Versions
+
+* Chromium 116.0.5845.82
+* Mozilla Firefox 115.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 115
+* Microsoft Edge 115
+
 ## Version 1.36
 
 🏝️ Summer maintenance release.
@@ -127,7 +412,7 @@ This version was also tested against the following stable channels:
 
 - Custom expect message, see [test assertions documentation](./test-assertions.md#custom-expect-message).
 - New options [`option: updateMode`] and [`option: updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
-- Chaining existing locator objects, see [locator docs](./locators.md#chaining-locators) for details.
+- Chaining existing locator objects, see [locator docs](./locators.md#matching-inside-a-locator) for details.
 - New option [`option: name`] in method [`method: Tracing.startChunk`].
 
 ### Browser Versions
@@ -450,7 +735,7 @@ await context.route_from_har("github.har.zip")
 context.route_from_har("github.har.zip")
 ```
 
-Read more in [our documentation](./network#record-and-replay-requests).
+Read more in [our documentation](./mock.md#mocking-with-har-files).
 
 
 ### Advanced Routing
@@ -651,7 +936,7 @@ This version was also tested against the following stable channels:
   page.locator("article", has=page.locator(".highlight")).click()
   ```
 
-  Read more in [locator documentation](./api/class-locator#locator-locator-option-has)
+  Read more in [locator documentation](./api/class-locator#locator-locator)
 
 - New [`method: Locator.page`]
 - [`method: Page.screenshot`] and [`method: Locator.screenshot`] now automatically hide blinking caret
@@ -737,7 +1022,7 @@ Read more in [our documentation](./test-assertions).
     page.locator("li", has_text="my item").locator("button").click()
     ```
 
-    Read more in [locator documentation](./api/class-locator#locator-locator-option-has-text)
+    Read more in [locator documentation](./api/class-locator#locator-locator)
 
 
 ### New APIs & changes
@@ -855,31 +1140,31 @@ This version of Playwright was also tested against the following stable channels
 
 ### 🖱️ Mouse Wheel
 
-By using [`Page.mouse.wheel`](https://playwright.dev/python/docs/api/class-mouse#mouse-wheel) you are now able to scroll vertically or horizontally.
+By using [`method: Mouse.wheel`] you are now able to scroll vertically or horizontally.
 
 ### 📜 New Headers API
 
 Previously it was not possible to get multiple header values of a response. This is now  possible and additional helper functions are available:
 
-- [Request.all_headers()](https://playwright.dev/python/docs/api/class-request#request-all-headers)
-- [Request.headers_array()](https://playwright.dev/python/docs/api/class-request#request-headers-array)
-- [Request.header_value(name: str)](https://playwright.dev/python/docs/api/class-request#request-header-value)
-- [Response.all_headers()](https://playwright.dev/python/docs/api/class-response#response-all-headers)
-- [Response.headers_array()](https://playwright.dev/python/docs/api/class-response#response-headers-array)
-- [Response.header_value(name: str)](https://playwright.dev/python/docs/api/class-response#response-header-value)
-- [Response.header_values(name: str)](https://playwright.dev/python/docs/api/class-response#response-header-values)
+- [`method: Request.allHeaders`]
+- [`method: Request.headersArray`]
+- [`method: Request.headerValue`]
+- [`method: Response.allHeaders`]
+- [`method: Response.headersArray`]
+- [`method: Response.headerValue`]
+- [`method: Response.headerValues`]
 
 ### 🌈 Forced-Colors emulation
 
-Its now possible to emulate the `forced-colors` CSS media feature by passing it in the [context options](https://playwright.dev/python/docs/api/class-browser#browser-new-context-option-forced-colors) or calling [Page.emulate_media()](https://playwright.dev/python/docs/api/class-page#page-emulate-media).
+Its now possible to emulate the `forced-colors` CSS media feature by passing it in the [`method: Browser.newContext`] or calling [`method: Page.emulateMedia`].
 
 ### New APIs
 
-- [Page.route()](https://playwright.dev/python/docs/api/class-page#page-route) accepts new `times` option to specify how many times this route should be matched.
-- [Page.set_checked(selector: str, checked: bool)](https://playwright.dev/python/docs/api/class-page#page-set-checked) and [Locator.set_checked(selector: str, checked: bool)](https://playwright.dev/python/docs/api/class-locator#locator-set-checked) was introduced to set the checked state of a checkbox.
-- [Request.sizes()](https://playwright.dev/python/docs/api/class-request#request-sizes) Returns resource size information for given http request.
-- [BrowserContext.tracing.start_chunk()](https://playwright.dev/python/docs/api/class-tracing#tracing-start-chunk) - Start a new trace chunk.
-- [BrowserContext.tracing.stop_chunk()](https://playwright.dev/python/docs/api/class-tracing#tracing-stop-chunk) - Stops a new trace chunk.
+- [`method: Page.route`] accepts new `times` option to specify how many times this route should be matched.
+- [`method: Page.setChecked`] and [`method: Locator.setChecked`] were introduced to set the checked state of a checkbox.
+- [`method: Request.sizes`] Returns resource size information for given http request.
+- [`method: Tracing.startChunk`] - Start a new trace chunk.
+- [`method: Tracing.stopChunk`] - Stops a new trace chunk.
 
 ### Browser Versions
 

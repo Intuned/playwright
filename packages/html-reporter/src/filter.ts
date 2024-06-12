@@ -14,7 +14,6 @@
   limitations under the License.
 */
 
-import { escapeRegExp } from './labelUtils';
 import type { TestCaseSummary } from './types';
 
 export class Filter {
@@ -99,25 +98,7 @@ export class Filter {
   }
 
   matches(test: TestCaseSummary): boolean {
-    if (!(test as any).searchValues) {
-      let status = 'passed';
-      if (test.outcome === 'unexpected')
-        status = 'failed';
-      if (test.outcome === 'flaky')
-        status = 'flaky';
-      if (test.outcome === 'skipped')
-        status = 'skipped';
-      const searchValues: SearchValues = {
-        text: (status + ' ' + test.projectName + ' ' + test.location.file + ' ' + test.path.join(' ') + ' ' + test.title).toLowerCase(),
-        project: test.projectName.toLowerCase(),
-        status: status as any,
-        file: test.location.file,
-        line: String(test.location.line),
-      };
-      (test as any).searchValues = searchValues;
-    }
-
-    const searchValues = (test as any).searchValues as SearchValues;
+    const searchValues = cacheSearchValues(test);
     if (this.project.length) {
       const matches = !!this.project.find(p => searchValues.project.includes(p));
       if (!matches)
@@ -127,19 +108,22 @@ export class Filter {
       const matches = !!this.status.find(s => searchValues.status.includes(s));
       if (!matches)
         return false;
+    } else {
+      if (searchValues.status === 'skipped')
+        return false;
     }
     if (this.text.length) {
       for (const text of this.text) {
         if (searchValues.text.includes(text))
           continue;
-        const location = text.split(':');
-        if (location.length === 2 && searchValues.file.includes(location[0]) && searchValues.line.includes(location[1]))
+        const [fileName, line, column] = text.split(':');
+        if (searchValues.file.includes(fileName) && searchValues.line === line && (column === undefined || searchValues.column === column))
           continue;
         return false;
       }
     }
     if (this.labels.length) {
-      const matches = this.labels.every(l => searchValues.text?.match(new RegExp(`(\\s|^)${escapeRegExp(l)}(\\s|$)`, 'g')));
+      const matches = this.labels.every(l => searchValues.labels.includes(l));
       if (!matches)
         return false;
     }
@@ -154,5 +138,54 @@ type SearchValues = {
   status: 'passed' | 'failed' | 'flaky' | 'skipped';
   file: string;
   line: string;
+  column: string;
+  labels: string[];
 };
 
+const searchValuesSymbol = Symbol('searchValues');
+
+function cacheSearchValues(test: TestCaseSummary): SearchValues {
+  const cached = (test as any)[searchValuesSymbol] as SearchValues | undefined;
+  if (cached)
+    return cached;
+
+  let status: SearchValues['status'] = 'passed';
+  if (test.outcome === 'unexpected')
+    status = 'failed';
+  if (test.outcome === 'flaky')
+    status = 'flaky';
+  if (test.outcome === 'skipped')
+    status = 'skipped';
+  const searchValues: SearchValues = {
+    text: (status + ' ' + test.projectName + ' ' + test.tags.join(' ') + ' ' + test.location.file + ' ' + test.path.join(' ') + ' ' + test.title).toLowerCase(),
+    project: test.projectName.toLowerCase(),
+    status,
+    file: test.location.file,
+    line: String(test.location.line),
+    column: String(test.location.column),
+    labels: test.tags.map(tag => tag.toLowerCase()),
+  };
+  (test as any)[searchValuesSymbol] = searchValues;
+  return searchValues;
+}
+
+export function filterWithToken(tokens: string[], token: string, append: boolean): string {
+  if (append) {
+    if (!tokens.includes(token))
+      return '#?q=' + [...tokens, token].join(' ').trim();
+    return '#?q=' + tokens.filter(t => t !== token).join(' ').trim();
+  }
+
+  // if metaKey or ctrlKey is not pressed, replace existing token with new token
+  let prefix: 's:' | 'p:' | '@';
+  if (token.startsWith('s:'))
+    prefix = 's:';
+  if (token.startsWith('p:'))
+    prefix = 'p:';
+  if (token.startsWith('@'))
+    prefix = '@';
+
+  const newTokens = tokens.filter(t => !t.startsWith(prefix));
+  newTokens.push(token);
+  return '#?q=' + newTokens.join(' ').trim();
+}

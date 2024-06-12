@@ -3,6 +3,8 @@ id: locators
 title: "Locators"
 ---
 
+## Introduction
+
 [Locator]s are the central piece of Playwright's auto-waiting and retry-ability. In a nutshell, locators represent
 a way to find element(s) on the page at any moment.
 
@@ -66,7 +68,7 @@ await page.GetByLabel("Password").FillAsync("secret-password");
 
 await page.GetByRole(AriaRole.Button, new() { Name = "Sign in" }).ClickAsync();
 
-await Expect(page.GetByText("Welcome, John!")).ToBeVisibleAsync();
+await Expect(Page.GetByText("Welcome, John!")).ToBeVisibleAsync();
 ```
 
 ## Locating elements
@@ -102,7 +104,7 @@ page.get_by_role("button", name="Sign in").click()
 await page.GetByRole(AriaRole.Button, new() { Name = "Sign in" }).ClickAsync();
 ```
 
-:::tip
+:::note
 Use the [code generator](./codegen.md) to generate a locator, and then edit it as you'd like.
 :::
 
@@ -200,7 +202,7 @@ For example, consider the following DOM structure.
 <button>Submit</button>
 ```
 
-You can locate each element by it's implicit role:
+You can locate each element by its implicit role:
 
 ```js
 await expect(page.getByRole('heading', { name: 'Sign up' })).toBeVisible();
@@ -243,7 +245,7 @@ page.getByRole(AriaRole.BUTTON,
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByRole(AriaRole.Heading, new() { Name = "Sign up" }))
     .ToBeVisibleAsync();
 
@@ -262,7 +264,7 @@ Role locators include [buttons, checkboxes, headings, links, lists, tables, and 
 
 Note that role locators **do not replace** accessibility audits and conformance tests, but rather give early feedback about the ARIA guidelines.
 
-:::tip When to use role locators
+:::note[When to use role locators]
 We recommend prioritizing role locators to locate elements, as it is the closest way to how users and assistive technology perceive the page.
 :::
 
@@ -299,7 +301,7 @@ page.get_by_label("Password").fill("secret")
 await page.GetByLabel("Password").FillAsync("secret");
 ```
 
-:::tip When to use label locators
+:::note[When to use label locators]
 Use this locator when locating form fields.
 :::
 ### Locate by placeholder
@@ -338,7 +340,7 @@ await page
     .FillAsync("playwright@microsoft.com");
 ```
 
-:::tip When to use placeholder locators
+:::note[When to use placeholder locators]
 Use this locator when locating form elements that do not have labels but do have placeholder texts.
 :::
 
@@ -371,7 +373,7 @@ expect(page.get_by_text("Welcome, John")).to_be_visible()
 ```
 
 ```csharp
-await Expect(page.GetByText("Welcome, John")).ToBeVisibleAsync();
+await Expect(Page.GetByText("Welcome, John")).ToBeVisibleAsync();
 ```
 
 Set an exact match:
@@ -394,7 +396,7 @@ expect(page.get_by_text("Welcome, John", exact=True)).to_be_visible()
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByText("Welcome, John", new() { Exact = true }))
     .ToBeVisibleAsync();
 ```
@@ -422,7 +424,7 @@ expect(page.get_by_text(re.compile("welcome, john", re.IGNORECASE))).to_be_visib
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByText(new Regex("welcome, john", RegexOptions.IgnoreCase)))
     .ToBeVisibleAsync();
 ```
@@ -431,7 +433,7 @@ await Expect(page
 Matching by text always normalizes whitespace, even with exact match. For example, it turns multiple spaces into one, turns line breaks into spaces and ignores leading and trailing whitespace.
 :::
 
-:::tip When to use text locators
+:::note[When to use text locators]
 We recommend using text locators to find non interactive elements like `div`, `span`, `p`, etc. For interactive elements like `button`, `a`, `input`, etc. use [role locators](#locate-by-role).
 :::
 
@@ -469,7 +471,7 @@ page.get_by_alt_text("playwright logo").click()
 await page.GetByAltText("playwright logo").ClickAsync();
 ```
 
-:::tip When to use alt locators
+:::note[When to use alt locators]
 Use this locator when your element supports alt text such as `img` and `area` elements.
 :::
 
@@ -502,10 +504,10 @@ expect(page.get_by_title("Issues count")).to_have_text("25 issues")
 ```
 
 ```csharp
-await Expect(page.GetByTitle("Issues count")).toHaveText("25 issues");
+await Expect(Page.GetByTitle("Issues count")).toHaveText("25 issues");
 ```
 
-:::tip When to use title locators
+:::note[When to use title locators]
 Use this locator when your element has the `title` attribute.
 :::
 
@@ -519,7 +521,7 @@ For example, consider the following DOM structure.
 <button data-testid="directions">Itinéraire</button>
 ```
 
-You can locate the element by it's test id:
+You can locate the element by its test id:
 
 ```js
 await page.getByTestId('directions').click();
@@ -541,7 +543,7 @@ page.get_by_test_id("directions").click()
 await page.GetByTestId("directions").ClickAsync();
 ```
 
-:::tip When to use testid locators
+:::note[When to use testid locators]
 You can also use test ids when you choose to use the test id methodology or when you can't locate by [role](#locate-by-role) or [text](#locate-by-text).
 :::
 
@@ -691,7 +693,7 @@ await page.Locator("#tsf > div:nth-child(2) > div.A8SBwf > div.RNNXgb > div > di
 await page.Locator("//*[@id='tsf']/div[2]/div[1]/div[1]/div/div[2]/input").ClickAsync();
 ```
 
-:::tip When to use this
+:::note[When to use this]
 CSS and XPath are not recommended as the DOM can often change leading to non resilient tests. Instead, try to come up with a locator that is close to how the user perceives the page such as [role locators](#locate-by-role) or [define an explicit testing contract](#locate-by-test-id) using test ids.
 :::
 
@@ -782,7 +784,7 @@ await expect(page.locator("x-details")).to_contain_text("Details")
 expect(page.locator("x-details")).to_contain_text("Details")
 ```
 ```csharp
-await Expect(page.Locator("x-details")).ToContainTextAsync("Details");
+await Expect(Page.Locator("x-details")).ToContainTextAsync("Details");
 ```
 ## Filtering Locators
 
@@ -908,7 +910,7 @@ expect(page.get_by_role("listitem").filter(has_not_text="Out of stock")).to_have
 
 ```csharp
 // 5 in-stock items
-await Expect(page.getByRole(AriaRole.Listitem).Filter(new() { HasNotText = "Out of stock" }))
+await Expect(Page.getByRole(AriaRole.Listitem).Filter(new() { HasNotText = "Out of stock" }))
     .ToHaveCountAsync(5);
 ```
 
@@ -971,19 +973,21 @@ await page
     .ClickAsync();
 ```
 
-We can also assert the product card to make sure there is only one
+We can also assert the product card to make sure there is only one:
 
 ```js
 await expect(page
     .getByRole('listitem')
-    .filter({ has: page.getByText('Product 2') }))
+    .filter({ has: page.getByRole('heading', { name: 'Product 2' }) }))
     .toHaveCount(1);
 ```
 
 ```java
 assertThat(page
     .getByRole(AriaRole.LISTITEM)
-    .filter(new Locator.FilterOptions().setHas(page.getByText("Product 2")))
+    .filter(new Locator.FilterOptions()
+        .setHas(page.GetByRole(AriaRole.HEADING,
+                               new Page.GetByRoleOptions().setName("Product 2"))))
     .hasCount(1);
 ```
 
@@ -1004,10 +1008,59 @@ expect(
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByRole(AriaRole.Listitem)
     .Filter(new() {
         Has = page.GetByRole(AriaRole.Heading, new() { Name = "Product 2" })
+    }))
+    .ToHaveCountAsync(1);
+```
+
+The filtering locator **must be relative** to the original locator and is queried starting with the original locator match, not the document root. Therefore, the following will not work, because the filtering locator starts matching from the `<ul>` list element that is outside of the `<li>` list item matched by the original locator:
+
+```js
+// ✖ WRONG
+await expect(page
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('list').getByText('Product 2') }))
+    .toHaveCount(1);
+```
+
+```java
+// ✖ WRONG
+assertThat(page
+    .getByRole(AriaRole.LISTITEM)
+    .filter(new Locator.FilterOptions()
+        .setHas(page.GetByRole(AriaRole.LIST)
+                    .GetByRole(AriaRole.HEADING,
+                               new Page.GetByRoleOptions().setName("Product 2"))))
+    .hasCount(1);
+```
+
+```python async
+# ✖ WRONG
+await expect(
+    page.get_by_role("listitem").filter(
+        has=page.get_by_role("list").get_by_role("heading", name="Product 2")
+    )
+).to_have_count(1)
+```
+
+```python sync
+# ✖ WRONG
+expect(
+    page.get_by_role("listitem").filter(
+        has=page.get_by_role("list").get_by_role("heading", name="Product 2")
+    )
+).to_have_count(1)
+```
+
+```csharp
+// ✖ WRONG
+await Expect(Page
+    .GetByRole(AriaRole.Listitem)
+    .Filter(new() {
+        Has = page.GetByRole(AriaRole.List).GetByRole(AriaRole.Heading, new() { Name = "Product 2" })
     }))
     .ToHaveCountAsync(1);
 ```
@@ -1047,7 +1100,7 @@ expect(
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByRole(AriaRole.Listitem)
     .Filter(new() {
         HasNot = page.GetByRole(AriaRole.Heading, new() { Name = "Product 2" })
@@ -1165,14 +1218,19 @@ var button = page.GetByRole(AriaRole.Button).And(page.GetByTitle("Subscribe"));
 
 ### Matching one of the two alternative locators
 
-If you'd like to target one of the two or more elements, and you don't know which one it will be, use [`method: Locator.or`] to create a locator that matches any of the alternatives.
+If you'd like to target one of the two or more elements, and you don't know which one it will be, use [`method: Locator.or`] to create a locator that matches all of the alternatives.
 
 For example, consider a scenario where you'd like to click on a "New email" button, but sometimes a security settings dialog shows up instead. In this case, you can wait for either a "New email" button, or a dialog and act accordingly.
+
+:::note
+If both "New email" button and security dialog appear on screen, the "or" locator will match both of them,
+possibly throwing the ["strict mode violation" error](#strictness). In this case, you can use [`method: Locator.first`] to only match one of them.
+:::
 
 ```js
 const newEmail = page.getByRole('button', { name: 'New' });
 const dialog = page.getByText('Confirm security settings');
-await expect(newEmail.or(dialog)).toBeVisible();
+await expect(newEmail.or(dialog).first()).toBeVisible();
 if (await dialog.isVisible())
   await page.getByRole('button', { name: 'Dismiss' }).click();
 await newEmail.click();
@@ -1181,7 +1239,7 @@ await newEmail.click();
 ```java
 Locator newEmail = page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("New"));
 Locator dialog = page.getByText("Confirm security settings");
-assertThat(newEmail.or(dialog)).isVisible();
+assertThat(newEmail.or(dialog).first()).isVisible();
 if (dialog.isVisible())
   page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Dismiss")).click();
 newEmail.click();
@@ -1190,7 +1248,7 @@ newEmail.click();
 ```python async
 new_email = page.get_by_role("button", name="New")
 dialog = page.get_by_text("Confirm security settings")
-await expect(new_email.or_(dialog)).to_be_visible()
+await expect(new_email.or_(dialog).first).to_be_visible()
 if (await dialog.is_visible()):
   await page.get_by_role("button", name="Dismiss").click()
 await new_email.click()
@@ -1199,7 +1257,7 @@ await new_email.click()
 ```python sync
 new_email = page.get_by_role("button", name="New")
 dialog = page.get_by_text("Confirm security settings")
-expect(new_email.or_(dialog)).to_be_visible()
+expect(new_email.or_(dialog).first).to_be_visible()
 if (dialog.is_visible()):
   page.get_by_role("button", name="Dismiss").click()
 new_email.click()
@@ -1208,7 +1266,7 @@ new_email.click()
 ```csharp
 var newEmail = page.GetByRole(AriaRole.Button, new() { Name = "New" });
 var dialog = page.GetByText("Confirm security settings");
-await Expect(newEmail.Or(dialog)).ToBeVisibleAsync();
+await Expect(newEmail.Or(dialog).First).ToBeVisibleAsync();
 if (await dialog.IsVisibleAsync())
   await page.GetByRole(AriaRole.Button, new() { Name = "Dismiss" }).ClickAsync();
 await newEmail.ClickAsync();
@@ -1220,7 +1278,7 @@ await newEmail.ClickAsync();
 It's usually better to find a [more reliable way](./locators.md#quick-guide) to uniquely identify the element instead of checking the visibility.
 :::
 
-Consider a page with two buttons, first invisible and second [visible](./actionability.md#visible).
+Consider a page with two buttons, the first invisible and the second [visible](./actionability.md#visible).
 
 ```html
 <button style='display: none'>Invisible</button>
@@ -1302,7 +1360,7 @@ assertThat(page.getByRole(AriaRole.LISTITEM).hasCount(3);
 ```
 
 ```csharp
-await Expect(page.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(3);
+await Expect(Page.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(3);
 ```
 
 ### Assert all text in a list
@@ -1342,7 +1400,7 @@ assertThat(page
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByRole(AriaRole.Listitem))
     .ToHaveTextAsync(new string[] {"apple", "banana", "orange"});
 ```
@@ -1352,7 +1410,7 @@ await Expect(page
 There are many ways to get a specific item in a list.
 #### Get by text
 
-Use the [`method: Page.getByText`] method to locate an element in a list by it's text content and then click on it.
+Use the [`method: Page.getByText`] method to locate an element in a list by its text content and then click on it.
 
 For example, consider the following DOM structure:
 
@@ -1364,7 +1422,7 @@ For example, consider the following DOM structure:
 </ul>
 ```
 
-Locate an item by it's text content and click it.
+Locate an item by its text content and click it.
 
 ```js
 await page.getByText('orange').click();

@@ -3,6 +3,8 @@ id: accessibility-testing
 title: "Accessibility testing"
 ---
 
+## Introduction
+
 Playwright can be used to test your application for many types of accessibility issues.
 
 A few examples of problems this can catch include:
@@ -236,3 +238,5 @@ public class HomepageTests extends AxeTestFixtures {
   }
 }
 ```
+
+See experimental [JUnit integration](./junit.md) to automatically initialize Playwright objects and more.

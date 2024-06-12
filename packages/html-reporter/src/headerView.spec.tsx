@@ -27,9 +27,8 @@ test('should render counters', async ({ mount }) => {
     flaky: 17,
     skipped: 10,
     ok: false,
-    duration: 100000
   }} filterText='' setFilterText={() => {}}></HeaderView>);
-  await expect(component.locator('a', { hasText: 'All' }).locator('.counter')).toHaveText('100');
+  await expect(component.locator('a', { hasText: 'All' }).locator('.counter')).toHaveText('90');
   await expect(component.locator('a', { hasText: 'Passed' }).locator('.counter')).toHaveText('42');
   await expect(component.locator('a', { hasText: 'Failed' }).locator('.counter')).toHaveText('31');
   await expect(component.locator('a', { hasText: 'Flaky' }).locator('.counter')).toHaveText('17');
@@ -46,7 +45,6 @@ test('should toggle filters', async ({ page, mount }) => {
       flaky: 17,
       skipped: 10,
       ok: false,
-      duration: 100000
     }}
     filterText=''
     setFilterText={(filterText: string) => filters.push(filterText)}

@@ -318,12 +318,21 @@ it('should handle selectAll', async ({ page, server, isMac }) => {
   await page.goto(server.PREFIX + '/input/textarea.html');
   const textarea = await page.$('textarea');
   await textarea.type('some text');
-  const modifier = isMac ? 'Meta' : 'Control';
-  await page.keyboard.down(modifier);
+  await page.keyboard.down('ControlOrMeta');
   await page.keyboard.press('a');
-  await page.keyboard.up(modifier);
+  await page.keyboard.up('ControlOrMeta');
   await page.keyboard.press('Backspace');
   expect(await page.$eval('textarea', textarea => textarea.value)).toBe('');
+});
+
+it('pressing Meta should not result in any text insertion on any platform', async ({ page, server, isMac }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28495' });
+  await page.setContent('<input type="text" value="hello world">');
+  const input = page.locator('input');
+  await expect(input).toHaveValue('hello world');
+  await input.focus();
+  await page.keyboard.press('Meta');
+  await expect(input).toHaveValue('hello world');
 });
 
 it('should be able to prevent selectAll', async ({ page, server, isMac }) => {
@@ -336,10 +345,9 @@ it('should be able to prevent selectAll', async ({ page, server, isMac }) => {
         event.preventDefault();
     }, false);
   });
-  const modifier = isMac ? 'Meta' : 'Control';
-  await page.keyboard.down(modifier);
+  await page.keyboard.down('ControlOrMeta');
   await page.keyboard.press('a');
-  await page.keyboard.up(modifier);
+  await page.keyboard.up('ControlOrMeta');
   await page.keyboard.press('Backspace');
   expect(await page.$eval('textarea', textarea => textarea.value)).toBe('some tex');
 });
@@ -358,25 +366,13 @@ it('should support MacOS shortcuts', async ({ page, server, platform, browserNam
   expect(await page.$eval('textarea', textarea => textarea.value)).toBe('some ');
 });
 
-it('should press the meta key', async ({ page, browserName, isMac }) => {
+it('should press the meta key', async ({ page }) => {
   const lastEvent = await captureLastKeydown(page);
   await page.keyboard.press('Meta');
   const { key, code, metaKey } = await lastEvent.jsonValue();
-  if (browserName === 'firefox' && !isMac)
-    expect(key).toBe('OS');
-  else
-    expect(key).toBe('Meta');
-
-  if (browserName === 'firefox')
-    expect(code).toBe('OSLeft');
-  else
-    expect(code).toBe('MetaLeft');
-
-  if (browserName === 'firefox' && !isMac)
-    expect(metaKey).toBe(false);
-  else
-    expect(metaKey).toBe(true);
-
+  expect(key).toBe('Meta');
+  expect(code).toBe('MetaLeft');
+  expect(metaKey).toBe(true);
 });
 
 it('should work with keyboard events with empty.html', async ({ page, server }) => {
@@ -471,39 +467,36 @@ it('should dispatch a click event on a button when Enter gets pressed', async ({
   expect((await actual.jsonValue()).clicked).toBe(true);
 });
 
-it('should support simple copy-pasting', async ({ page, isMac, browserName }) => {
-  const modifier = isMac ? 'Meta' : 'Control';
+it('should support simple copy-pasting', async ({ page }) => {
   await page.setContent(`<div contenteditable>123</div>`);
   await page.focus('div');
-  await page.keyboard.press(`${modifier}+KeyA`);
-  await page.keyboard.press(`${modifier}+KeyC`);
-  await page.keyboard.press(`${modifier}+KeyV`);
-  await page.keyboard.press(`${modifier}+KeyV`);
+  await page.keyboard.press(`ControlOrMeta+KeyA`);
+  await page.keyboard.press(`ControlOrMeta+KeyC`);
+  await page.keyboard.press(`ControlOrMeta+KeyV`);
+  await page.keyboard.press(`ControlOrMeta+KeyV`);
   expect(await page.evaluate(() => document.querySelector('div').textContent)).toBe('123123');
 });
 
-it('should support simple cut-pasting', async ({ page, isMac }) => {
-  const modifier = isMac ? 'Meta' : 'Control';
+it('should support simple cut-pasting', async ({ page }) => {
   await page.setContent(`<div contenteditable>123</div>`);
   await page.focus('div');
-  await page.keyboard.press(`${modifier}+KeyA`);
-  await page.keyboard.press(`${modifier}+KeyX`);
-  await page.keyboard.press(`${modifier}+KeyV`);
-  await page.keyboard.press(`${modifier}+KeyV`);
+  await page.keyboard.press(`ControlOrMeta+KeyA`);
+  await page.keyboard.press(`ControlOrMeta+KeyX`);
+  await page.keyboard.press(`ControlOrMeta+KeyV`);
+  await page.keyboard.press(`ControlOrMeta+KeyV`);
   expect(await page.evaluate(() => document.querySelector('div').textContent)).toBe('123123');
 });
 
-it('should support undo-redo', async ({ page, isMac, browserName, isLinux }) => {
+it('should support undo-redo', async ({ page, browserName, isLinux }) => {
   it.fixme(browserName === 'webkit' && isLinux, 'https://github.com/microsoft/playwright/issues/12000');
-  const modifier = isMac ? 'Meta' : 'Control';
   await page.setContent(`<div contenteditable></div>`);
   const div = page.locator('div');
   await expect(div).toHaveText('');
   await div.type('123');
   await expect(div).toHaveText('123');
-  await page.keyboard.press(`${modifier}+KeyZ`);
+  await page.keyboard.press(`ControlOrMeta+KeyZ`);
   await expect(div).toHaveText('');
-  await page.keyboard.press(`Shift+${modifier}+KeyZ`);
+  await page.keyboard.press(`Shift+ControlOrMeta+KeyZ`);
   await expect(div).toHaveText('123');
 });
 
@@ -701,4 +694,15 @@ it('should type after context menu was opened', async ({ server, page, browserNa
   await page.keyboard.down('ArrowDown');
 
   await expect.poll(() => page.evaluate('window.keys')).toEqual(['ArrowDown']);
+});
+
+it('should have correct Keydown/Keyup order when pressing Escape key', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27709' });
+
+  await page.goto(server.PREFIX + '/input/keyboard.html');
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate('getResult()')).toBe(`
+Keydown: Escape Escape 27 []
+Keyup: Escape Escape 27 []
+`.trim());
 });

@@ -15,7 +15,7 @@
  */
 
 import path from 'path';
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, playwrightCtConfigText } from './playwright-test-fixtures';
 
 test.describe.configure({ mode: 'parallel' });
 
@@ -40,7 +40,7 @@ test('should print dependencies in CJS mode', async ({ runInlineTest }) => {
       test('passes', () => {});
     `,
     'globalTeardown.ts': `
-      import { fileDependencies } from '@playwright/test/lib/internalsForTest';
+      import { fileDependencies } from 'playwright/lib/internalsForTest';
       export default () => {
         console.log('###' + JSON.stringify(fileDependencies()) + '###');
       };
@@ -79,7 +79,7 @@ test('should print dependencies in ESM mode', async ({ runInlineTest }) => {
       test('passes', () => {});
     `,
     'globalTeardown.ts': `
-      import { fileDependencies } from '@playwright/test/lib/internalsForTest';
+      import { fileDependencies } from 'playwright/lib/internalsForTest';
       export default () => {
         console.log('###' + JSON.stringify(fileDependencies()) + '###');
       };
@@ -91,8 +91,85 @@ test('should print dependencies in ESM mode', async ({ runInlineTest }) => {
   const output = result.output;
   const deps = JSON.parse(output.match(/###(.*)###/)![1]);
   expect(deps).toEqual({
-    'a.test.ts': ['helperA.ts', 'index.mjs'],
-    'b.test.ts': ['helperA.ts', 'helperB.ts', 'index.mjs'],
+    'a.test.ts': ['helperA.ts'],
+    'b.test.ts': ['helperA.ts', 'helperB.ts'],
+  });
+});
+
+test('should print dependencies in mixed CJS/ESM mode 1', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'package.json': `{ "type": "module" }`,
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        globalTeardown: './globalTeardown.ts',
+      });
+    `,
+    'helperA.cjs': `exports.foo = () => {}`,
+    'helperB.cjs': `require('./helperA');`,
+    'a.test.ts': `
+      import './helperA';
+      import { test, expect } from '@playwright/test';
+      test('passes', () => {});
+    `,
+    'b.test.cjs': `
+      require('./helperB');
+      const { test, expect } = require('@playwright/test');
+      test('passes', () => {});
+    `,
+    'globalTeardown.ts': `
+      import { fileDependencies } from 'playwright/lib/internalsForTest';
+      export default () => {
+        console.log('###' + JSON.stringify(fileDependencies()) + '###');
+      };
+    `
+  }, {});
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(2);
+  const output = result.output;
+  const deps = JSON.parse(output.match(/###(.*)###/)![1]);
+  expect(deps).toEqual({
+    'a.test.ts': ['helperA.cjs'],
+    'b.test.cjs': ['helperA.cjs', 'helperB.cjs'],
+  });
+});
+
+test('should print dependencies in mixed CJS/ESM mode 2', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.mts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        globalTeardown: './globalTeardown.ts',
+      });
+    `,
+    'helperA.cjs': `exports.foo = () => {}`,
+    'helperB.cts': `import './helperA';`,
+    'a.test.mts': `
+      import './helperA';
+      import { test, expect } from '@playwright/test';
+      test('passes', () => {});
+    `,
+    'b.test.ts': `
+      import './helperB';
+      const { test, expect } = require('@playwright/test');
+      test('passes', () => {});
+    `,
+    'globalTeardown.ts': `
+      import { fileDependencies } from 'playwright/lib/internalsForTest';
+      export default () => {
+        console.log('###' + JSON.stringify(fileDependencies()) + '###');
+      };
+    `
+  }, {});
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(2);
+  const output = result.output;
+  const deps = JSON.parse(output.match(/###(.*)###/)![1]);
+  expect(deps).toEqual({
+    'a.test.mts': ['helperA.cjs'],
+    'b.test.ts': ['helperA.cjs', 'helperB.cts'],
   });
 });
 
@@ -563,10 +640,7 @@ test('should not watch unfiltered files', async ({ runWatchTest, writeFiles }) =
 
 test('should run CT on changed deps', async ({ runWatchTest, writeFiles }) => {
   const testProcess = await runWatchTest({
-    'playwright.config.ts': `
-      import { defineConfig } from '@playwright/experimental-ct-react';
-      export default defineConfig({ projects: [{name: 'default'}] });
-    `,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': ``,
     'src/button.tsx': `
@@ -600,16 +674,13 @@ test('should run CT on changed deps', async ({ runWatchTest, writeFiles }) => {
 
   await testProcess.waitForOutput(`src${path.sep}button.spec.tsx:4:11 › pass`);
   expect(testProcess.output).not.toContain(`src${path.sep}link.spec.tsx`);
-  await testProcess.waitForOutput('Error: Timed out 1000ms waiting for expect(received).toHaveText(expected)');
+  await testProcess.waitForOutput(`Error: Timed out 1000ms waiting for expect(locator).toHaveText(expected)`);
   await testProcess.waitForOutput('Waiting for file changes.');
 });
 
 test('should run CT on indirect deps change', async ({ runWatchTest, writeFiles }) => {
   const testProcess = await runWatchTest({
-    'playwright.config.ts': `
-      import { defineConfig } from '@playwright/experimental-ct-react';
-      export default defineConfig({ projects: [{name: 'default'}] });
-    `,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': ``,
     'src/button.css': `
@@ -652,10 +723,7 @@ test('should run CT on indirect deps change', async ({ runWatchTest, writeFiles 
 
 test('should run CT on indirect deps change ESM mode', async ({ runWatchTest, writeFiles }) => {
   const testProcess = await runWatchTest({
-    'playwright.config.ts': `
-      import { defineConfig } from '@playwright/experimental-ct-react';
-      export default defineConfig({ projects: [{name: 'default'}] });
-    `,
+    'playwright.config.ts': playwrightCtConfigText,
     'package.json': `{ "type": "module" }`,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': ``,

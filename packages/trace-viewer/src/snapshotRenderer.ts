@@ -42,7 +42,7 @@ export class SnapshotRenderer {
   }
 
   render(): RenderedFrameSnapshot {
-    const visit = (n: NodeSnapshot, snapshotIndex: number, parentTag: string | undefined): string => {
+    const visit = (n: NodeSnapshot, snapshotIndex: number, parentTag: string | undefined, parentAttrs: [string, string][] | undefined): string => {
       // Text node.
       if (typeof n === 'string') {
         const text = escapeText(n);
@@ -61,31 +61,50 @@ export class SnapshotRenderer {
             const nodes = snapshotNodes(this._snapshots[referenceIndex]);
             const nodeIndex = n[0][1];
             if (nodeIndex >= 0 && nodeIndex < nodes.length)
-              (n as any)._string = visit(nodes[nodeIndex], referenceIndex, parentTag);
+              (n as any)._string = visit(nodes[nodeIndex], referenceIndex, parentTag, parentAttrs);
           }
         } else if (typeof n[0] === 'string') {
           // Element node.
+          // Note that <noscript> will not be rendered by default in the trace viewer, because
+          // JS is enabled. So rename it to <x-noscript>.
+          const nodeName = n[0] === 'NOSCRIPT' ? 'X-NOSCRIPT' : n[0];
+          const attrs = Object.entries(n[1] || {});
           const builder: string[] = [];
-          builder.push('<', n[0]);
-          // Never set relative URLs as <iframe src> - they start fetching frames immediately.
-          const isFrame = n[0] === 'IFRAME' || n[0] === 'FRAME';
-          const isAnchor = n[0] === 'A';
-          for (const [attr, value] of Object.entries(n[1] || {})) {
-            const attrName = isFrame && attr.toLowerCase() === 'src' ? '__playwright_src__' : attr;
-            let attrValue = value;
-            if (attr.toLowerCase() === 'href' || attr.toLowerCase() === 'src') {
-              if (isAnchor)
-                attrValue = 'link://' + value;
-              else
-                attrValue = rewriteURLForCustomProtocol(value);
+          builder.push('<', nodeName);
+          const kCurrentSrcAttribute = '__playwright_current_src__';
+          const isFrame = nodeName === 'IFRAME' || nodeName === 'FRAME';
+          const isAnchor = nodeName === 'A';
+          const isImg = nodeName === 'IMG';
+          const isImgWithCurrentSrc = isImg && attrs.some(a => a[0] === kCurrentSrcAttribute);
+          const isSourceInsidePictureWithCurrentSrc = nodeName === 'SOURCE' && parentTag === 'PICTURE' && parentAttrs?.some(a => a[0] === kCurrentSrcAttribute);
+          for (const [attr, value] of attrs) {
+            let attrName = attr;
+            if (isFrame && attr.toLowerCase() === 'src') {
+              // Never set relative URLs as <iframe src> - they start fetching frames immediately.
+              attrName = '__playwright_src__';
             }
-            builder.push(' ', attrName, '="', escapeAttribute(attrValue as string), '"');
+            if (isImg && attr === kCurrentSrcAttribute) {
+              // Render currentSrc for images, so that trace viewer does not accidentally
+              // resolve srcset to a different source.
+              attrName = 'src';
+            }
+            if (['src', 'srcset'].includes(attr.toLowerCase()) && (isImgWithCurrentSrc || isSourceInsidePictureWithCurrentSrc)) {
+              // Disable actual <img src>, <img srcset>, <source src> and <source srcset> if
+              // we will be using the currentSrc instead.
+              attrName = '_' + attrName;
+            }
+            let attrValue = value;
+            if (isAnchor && attr.toLowerCase() === 'href')
+              attrValue = 'link://' + value;
+            else if (attr.toLowerCase() === 'href' || attr.toLowerCase() === 'src' || attr === kCurrentSrcAttribute)
+              attrValue = rewriteURLForCustomProtocol(value);
+            builder.push(' ', attrName, '="', escapeAttribute(attrValue), '"');
           }
           builder.push('>');
           for (let i = 2; i < n.length; i++)
-            builder.push(visit(n[i], snapshotIndex, n[0]));
-          if (!autoClosing.has(n[0]))
-            builder.push('</', n[0], '>');
+            builder.push(visit(n[i], snapshotIndex, nodeName, attrs));
+          if (!autoClosing.has(nodeName))
+            builder.push('</', nodeName, '>');
           (n as any)._string = builder.join('');
         } else {
           // Why are we here? Let's not throw, just in case.
@@ -96,7 +115,7 @@ export class SnapshotRenderer {
     };
 
     const snapshot = this._snapshot;
-    let html = visit(snapshot.html, this._index, undefined);
+    let html = visit(snapshot.html, this._index, undefined, undefined);
     if (!html)
       return { html: '', pageId: snapshot.pageId, frameId: snapshot.frameId, index: this._index };
 
@@ -104,9 +123,7 @@ export class SnapshotRenderer {
     const prefix = snapshot.doctype ? `<!DOCTYPE ${snapshot.doctype}>` : '';
     html = prefix + [
       '<style>*,*::before,*::after { visibility: hidden }</style>',
-      `<style>*[__playwright_target__="${this.snapshotName}"] { outline: 2px solid #006ab1 !important; background-color: #6fa8dc7f !important; }</style>`,
-      `<style>*[__playwright_target__="${this._callId}"] { outline: 2px solid #006ab1 !important; background-color: #6fa8dc7f !important; }</style>`,
-      `<script>${snapshotScript()}</script>`
+      `<script>${snapshotScript(this._callId, this.snapshotName)}</script>`
     ].join('') + html;
 
     return { html, pageId: snapshot.pageId, frameId: snapshot.frameId, index: this._index };
@@ -114,38 +131,36 @@ export class SnapshotRenderer {
 
   resourceByUrl(url: string, method: string): ResourceSnapshot | undefined {
     const snapshot = this._snapshot;
-    let result: ResourceSnapshot | undefined;
+    let sameFrameResource: ResourceSnapshot | undefined;
+    let otherFrameResource: ResourceSnapshot | undefined;
 
-    // First try locating exact resource belonging to this frame.
     for (const resource of this._resources) {
       // Only use resources that received response before the snapshot.
       // Note that both snapshot time and request time are taken in the same Node process.
       if (typeof resource._monotonicTime === 'number' && resource._monotonicTime >= snapshot.timestamp)
         break;
-      if (resource._frameref !== snapshot.frameId)
+      if (resource.response.status === 304) {
+        // "Not Modified" responses are issued when browser requests the same resource
+        // multiple times, meanwhile indicating that it has the response cached.
+        //
+        // When rendering the snapshot, browser most likely will not have the resource cached,
+        // so we should respond with the real content instead, picking the last response that
+        // is not 304.
         continue;
+      }
       if (resource.request.url === url && resource.request.method === method) {
         // Pick the last resource with matching url - most likely it was used
         // at the time of snapshot, not the earlier aborted resource with the same url.
-        result = resource;
+        if (resource._frameref === snapshot.frameId)
+          sameFrameResource = resource;
+        else
+          otherFrameResource = resource;
       }
     }
 
-    if (!result) {
-      // Then fall back to resource with this URL to account for memory cache.
-      for (const resource of this._resources) {
-        // Only use resources that received response before the snapshot.
-        // Note that both snapshot time and request time are taken in the same Node process.
-        if (typeof resource._monotonicTime === 'number' && resource._monotonicTime >= snapshot.timestamp)
-          break;
-        if (resource.request.url === url && resource.request.method === method) {
-          // Pick the last resource with matching url - most likely it was used
-          // at the time of snapshot, not the earlier aborted resource with the same url.
-          result = resource;
-        }
-      }
-    }
-
+    // First try locating exact resource belonging to this frame,
+    // then fall back to resource with this URL to account for memory cache.
+    let result = sameFrameResource ?? otherFrameResource;
     if (result && method.toUpperCase() === 'GET') {
       // Patch override if necessary.
       for (const o of snapshot.resourceOverrides) {
@@ -197,10 +212,15 @@ function snapshotNodes(snapshot: FrameSnapshot): NodeSnapshot[] {
   return (snapshot as any)._nodes;
 }
 
-function snapshotScript() {
-  function applyPlaywrightAttributes(unwrapPopoutUrl: (url: string) => string) {
+function snapshotScript(...targetIds: (string | undefined)[]) {
+  function applyPlaywrightAttributes(unwrapPopoutUrl: (url: string) => string, ...targetIds: (string | undefined)[]) {
+    const kPointerWarningTitle = 'Recorded click position in absolute coordinates did not' +
+        ' match the center of the clicked element. This is likely due to a difference between' +
+        ' the test runner and the trace viewer operating systems.';
+
     const scrollTops: Element[] = [];
     const scrollLefts: Element[] = [];
+    const targetElements: Element[] = [];
 
     const visit = (root: Document | ShadowRoot) => {
       // Collect all scrolled elements for later use.
@@ -210,7 +230,9 @@ function snapshotScript() {
         scrollLefts.push(e);
 
       for (const element of root.querySelectorAll(`[__playwright_value_]`)) {
-        (element as HTMLInputElement | HTMLTextAreaElement).value = element.getAttribute('__playwright_value_')!;
+        const inputElement = element as HTMLInputElement | HTMLTextAreaElement;
+        if (inputElement.type !== 'file')
+          inputElement.value = inputElement.getAttribute('__playwright_value_')!;
         element.removeAttribute('__playwright_value_');
       }
       for (const element of root.querySelectorAll(`[__playwright_checked_]`)) {
@@ -222,15 +244,22 @@ function snapshotScript() {
         element.removeAttribute('__playwright_selected_');
       }
 
+      for (const targetId of targetIds) {
+        for (const target of root.querySelectorAll(`[__playwright_target__="${targetId}"]`)) {
+          const style = (target as HTMLElement).style;
+          style.outline = '2px solid #006ab1';
+          style.backgroundColor = '#6fa8dc7f';
+          targetElements.push(target);
+        }
+      }
+
       for (const iframe of root.querySelectorAll('iframe, frame')) {
         const src = iframe.getAttribute('__playwright_src__');
         if (!src) {
           iframe.setAttribute('src', 'data:text/html,<body style="background: #ddd"></body>');
         } else {
-          // Append query parameters to inherit ?name= or ?time= values from parent.
+          // Retain query parameters to inherit name=, time=, pointX=, pointY= and other values from parent.
           const url = new URL(unwrapPopoutUrl(window.location.href));
-          url.searchParams.delete('pointX');
-          url.searchParams.delete('pointY');
           // We can be loading iframe from within iframe, reset base to be absolute.
           const index = url.pathname.lastIndexOf('/snapshot/');
           if (index !== -1)
@@ -280,23 +309,56 @@ function snapshotScript() {
         element.removeAttribute('__playwright_scroll_left_');
       }
 
-      const search = new URL(window.location.href).searchParams;
-      const pointX = search.get('pointX');
-      const pointY = search.get('pointY');
-      if (pointX) {
-        const pointElement = document.createElement('x-pw-pointer');
-        pointElement.style.position = 'fixed';
-        pointElement.style.backgroundColor = '#f44336';
-        pointElement.style.width = '20px';
-        pointElement.style.height = '20px';
-        pointElement.style.borderRadius = '10px';
-        pointElement.style.margin = '-10px 0 0 -10px';
-        pointElement.style.zIndex = '2147483647';
-        pointElement.style.left = pointX + 'px';
-        pointElement.style.top = pointY + 'px';
-        document.documentElement.appendChild(pointElement);
-      }
       document.styleSheets[0].disabled = true;
+
+      const search = new URL(window.location.href).searchParams;
+
+      if (search.get('pointX') && search.get('pointY')) {
+        const pointX = +search.get('pointX')!;
+        const pointY = +search.get('pointY')!;
+        const hasTargetElements = targetElements.length > 0;
+        const roots = document.documentElement ? [document.documentElement] : [];
+        for (const target of (hasTargetElements ? targetElements : roots)) {
+          const pointElement = document.createElement('x-pw-pointer');
+          pointElement.style.position = 'fixed';
+          pointElement.style.backgroundColor = '#f44336';
+          pointElement.style.width = '20px';
+          pointElement.style.height = '20px';
+          pointElement.style.borderRadius = '10px';
+          pointElement.style.margin = '-10px 0 0 -10px';
+          pointElement.style.zIndex = '2147483646';
+          pointElement.style.display = 'flex';
+          pointElement.style.alignItems = 'center';
+          pointElement.style.justifyContent = 'center';
+          if (hasTargetElements) {
+            // Sometimes there are layout discrepancies between recording and rendering, e.g. fonts,
+            // that may place the point at the wrong place. To avoid confusion, we just show the
+            // point in the middle of the target element.
+            const box = target.getBoundingClientRect();
+            const centerX = (box.left + box.width / 2);
+            const centerY = (box.top + box.height / 2);
+            pointElement.style.left = centerX + 'px';
+            pointElement.style.top = centerY + 'px';
+            // "Warning symbol" indicates that action point is not 100% correct.
+            if (Math.abs(centerX - pointX) >= 10 || Math.abs(centerY - pointY) >= 10) {
+              const warningElement = document.createElement('x-pw-pointer-warning');
+              warningElement.textContent = '⚠';
+              warningElement.style.fontSize = '19px';
+              warningElement.style.color = 'white';
+              warningElement.style.marginTop = '-3.5px';
+              warningElement.style.userSelect = 'none';
+              pointElement.appendChild(warningElement);
+              pointElement.setAttribute('title', kPointerWarningTitle);
+            }
+          } else {
+            // For actions without a target element, e.g. page.mouse.move(),
+            // show the point at the recorder location.
+            pointElement.style.left = pointX + 'px';
+            pointElement.style.top = pointY + 'px';
+          }
+          document.documentElement.appendChild(pointElement);
+        }
+      }
     };
 
     const onDOMContentLoaded = () => visit(document);
@@ -305,7 +367,7 @@ function snapshotScript() {
     window.addEventListener('DOMContentLoaded', onDOMContentLoaded);
   }
 
-  return `\n(${applyPlaywrightAttributes.toString()})(${unwrapPopoutUrl.toString()})`;
+  return `\n(${applyPlaywrightAttributes.toString()})(${unwrapPopoutUrl.toString()}${targetIds.map(id => `, "${id}"`).join('')})`;
 }
 
 

@@ -33,13 +33,18 @@ export class Tracing extends ChannelOwner<channels.TracingChannel> implements ap
     super(parent, type, guid, initializer);
   }
 
-  async start(options: { name?: string, title?: string, snapshots?: boolean, screenshots?: boolean, sources?: boolean } = {}) {
+  async start(options: { name?: string, title?: string, snapshots?: boolean, screenshots?: boolean, sources?: boolean, _live?: boolean } = {}) {
     this._includeSources = !!options.sources;
     const traceName = await this._wrapApiCall(async () => {
-      await this._channel.tracingStart(options);
+      await this._channel.tracingStart({
+        name: options.name,
+        snapshots: options.snapshots,
+        screenshots: options.screenshots,
+        live: options._live,
+      });
       const response = await this._channel.tracingStartChunk({ name: options.name, title: options.title });
       return response.traceName;
-    });
+    }, true);
     await this._startCollectingStacks(traceName);
   }
 
@@ -58,21 +63,20 @@ export class Tracing extends ChannelOwner<channels.TracingChannel> implements ap
   }
 
   async stopChunk(options: { path?: string } = {}) {
-    await this._doStopChunk(options.path);
+    await this._wrapApiCall(async () => {
+      await this._doStopChunk(options.path);
+    }, true);
   }
 
   async stop(options: { path?: string } = {}) {
     await this._wrapApiCall(async () => {
       await this._doStopChunk(options.path);
       await this._channel.tracingStop();
-    });
+    }, true);
   }
 
   private async _doStopChunk(filePath: string | undefined) {
-    if (this._isTracing) {
-      this._isTracing = false;
-      this._connection.setIsTracing(false);
-    }
+    this._resetStackCounter();
 
     if (!filePath) {
       // Not interested in artifacts.
@@ -105,5 +109,12 @@ export class Tracing extends ChannelOwner<channels.TracingChannel> implements ap
     await artifact.delete();
 
     await this._connection.localUtils()._channel.zip({ zipFile: filePath, entries: [], mode: 'append', stacksId: this._stacksId, includeSources: this._includeSources });
+  }
+
+  _resetStackCounter() {
+    if (this._isTracing) {
+      this._isTracing = false;
+      this._connection.setIsTracing(false);
+    }
   }
 }

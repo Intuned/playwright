@@ -3,6 +3,8 @@ id: test-reporters
 title: "Reporters"
 ---
 
+## Introduction
+
 Playwright Test comes with a few built-in reporters for different needs and ability to provide custom reporters. The easiest way to try out built-in reporters is to pass `--reporter` [command line option](./test-cli.md).
 
 
@@ -157,7 +159,7 @@ npx playwright test --reporter=html
 ```
 
 By default, HTML report is opened automatically if some of the tests failed. You can control this behavior via the
-`open` property in the Playwright config. The possible values for that property are `always`, `never` and `on-failure`
+`open` property in the Playwright config or the `PW_TEST_HTML_REPORT_OPEN` environmental variable. The possible values for that property are `always`, `never` and `on-failure`
 (default).
 
 You can also configure `host` and `port` that are used to serve the HTML report.
@@ -205,8 +207,31 @@ Or if there is a custom folder name:
 npx playwright show-report my-report
 ```
 
-> The `html` reporter currently does not support merging reports generated across multiple [`--shards`](./test-parallel.md#shard-tests-between-multiple-machines) into a single report. See [this](https://github.com/microsoft/playwright/issues/10437) issue for available third party solutions.
+### Blob reporter
 
+Blob reports contain all the details about the test run and can be used later to produce any other report. Their primary function is to facilitate the merging of reports from [sharded tests](./test-sharding.md).
+
+```bash
+npx playwright test --reporter=blob
+```
+
+By default, the report is written into the `blob-report` directory in the package.json directory or current working directory (if no package.json is found). The report file name looks like `report-<hash>.zip` or `report-<hash>-<shard_number>.zip` when [sharding](./test-sharding.md) is used. The hash is an optional value computed from `--grep`, `--grepInverted`, `--project` and file filters passed as command line arguments. The hash guarantees that running Playwright with different command line options will produce different but stable between runs report names. The output file name can be overridden in the configuration file or pass as `'PLAYWRIGHT_BLOB_OUTPUT_FILE'` environment variable.
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  reporter: [['blob', { outputFile: `./blob-report/report-${os.platform()}.zip` }]],
+});
+```
+
+Blob report supports following configuration options and environment variables:
+
+| Environment Variable Name | Reporter Config Option| Description | Default
+|---|---|---|---|
+| `PLAYWRIGHT_BLOB_OUTPUT_DIR` | `outputDir` | Directory to save the output. Existing content is deleted before writing the new report. | `blob-report`
+| `PLAYWRIGHT_BLOB_OUTPUT_NAME` | `fileName` | Report file name. | `report-<project>-<hash>-<shard_number>.zip`
+| `PLAYWRIGHT_BLOB_OUTPUT_FILE` | `outputFile` | Full path to the output file. If defined, `outputDir` and `fileName` will be ignored. | `undefined`
 
 ### JSON reporter
 
@@ -238,6 +263,14 @@ export default defineConfig({
 });
 ```
 
+JSON report supports following configuration options and environment variables:
+
+| Environment Variable Name | Reporter Config Option| Description | Default
+|---|---|---|---|
+| `PLAYWRIGHT_JSON_OUTPUT_DIR` | | Directory to save the output file. Ignored if output file is specified. | `cwd` or config directory.
+| `PLAYWRIGHT_JSON_OUTPUT_NAME` | `outputFile` | Base file name for the output, relative to the output dir. | JSON report is printed to the stdout.
+| `PLAYWRIGHT_JSON_OUTPUT_FILE` | `outputFile` | Full path to the output file. If defined, `PLAYWRIGHT_JSON_OUTPUT_DIR` and `PLAYWRIGHT_JSON_OUTPUT_NAME` will be ignored. | JSON report is printed to the stdout.
+
 ### JUnit reporter
 
 JUnit reporter produces a JUnit-style xml report.
@@ -268,11 +301,25 @@ export default defineConfig({
 });
 ```
 
+JUnit report supports following configuration options and environment variables:
+
+| Environment Variable Name | Reporter Config Option| Description | Default
+|---|---|---|---|
+| `PLAYWRIGHT_JUNIT_OUTPUT_DIR` | | Directory to save the output file. Ignored if output file is not specified. | `cwd` or config directory.
+| `PLAYWRIGHT_JUNIT_OUTPUT_NAME` | `outputFile` | Base file name for the output, relative to the output dir. | JUnit report is printed to the stdout.
+| `PLAYWRIGHT_JUNIT_OUTPUT_FILE` | `outputFile` | Full path to the output file. If defined, `PLAYWRIGHT_JUNIT_OUTPUT_DIR` and `PLAYWRIGHT_JUNIT_OUTPUT_NAME` will be ignored. | JUnit report is printed to the stdout.
+|  | `stripANSIControlSequences` | Whether to remove ANSI control sequences from the text before writing it in the report. | By default output text is added as is.
+|  | `includeProjectInTestName` | Whether to include Playwright project name in every test case as a name prefix. | By default not included.
+| `PLAYWRIGHT_JUNIT_SUITE_ID` |  | Value of the `id` attribute on the root `<testsuites/>` report entry. | Empty string.
+| `PLAYWRIGHT_JUNIT_SUITE_NAME` |  | Value of the `name` attribute on the root `<testsuites/>` report entry. | Empty string.
+
 ### GitHub Actions annotations
 
 You can use the built in `github` reporter to get automatic failure annotations when running in GitHub actions.
 
-Note that all other reporters work on GitHub Actions as well, but do not provide annotations.
+Note that all other reporters work on GitHub Actions as well, but do not provide annotations. Also, it is not recommended to
+use this annotation type if running your tests with a matrix strategy as the stack trace failures will multiply and obscure the
+GitHub file view.
 
 ```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
@@ -289,7 +336,9 @@ export default defineConfig({
 You can create a custom reporter by implementing a class with some of the reporter methods. Learn more about the [Reporter] API.
 
 ```js title="my-awesome-reporter.ts"
-import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestResult } from '@playwright/test/reporter';
+import type {
+  FullConfig, FullResult, Reporter, Suite, TestCase, TestResult
+} from '@playwright/test/reporter';
 
 class MyReporter implements Reporter {
   onBegin(config: FullConfig, suite: Suite) {
@@ -321,11 +370,22 @@ export default defineConfig({
   reporter: './my-awesome-reporter.ts',
 });
 ```
+
+Or just pass the reporter file path as `--reporter` command line option:
+
+```bash
+npx playwright test --reporter="./myreporter/my-awesome-reporter.ts"
+```
+
 ## Third party reporter showcase
 
 * [Allure](https://www.npmjs.com/package/allure-playwright)
-* [Monocart](https://github.com/cenfun/monocart-reporter)
-* [Tesults](https://www.tesults.com/docs/playwright)
-* [ReportPortal](https://github.com/reportportal/agent-js-playwright)
+* [Argos Visual Testing](https://argos-ci.com/docs/playwright)
 * [Currents](https://www.npmjs.com/package/@currents/playwright)
+* [GitHub Actions Reporter](https://www.npmjs.com/package/@estruyf/github-actions-reporter)
+* [Monocart](https://github.com/cenfun/monocart-reporter)
+* [ReportPortal](https://github.com/reportportal/agent-js-playwright)
 * [Serenity/JS](https://serenity-js.org/handbook/test-runners/playwright-test)
+* [Testmo](https://github.com/jonasclaes/playwright-testmo-reporter)
+* [Testomat.io](https://github.com/testomatio/reporter/blob/master/docs/frameworks.md#playwright)
+* [Tesults](https://www.tesults.com/docs/playwright)

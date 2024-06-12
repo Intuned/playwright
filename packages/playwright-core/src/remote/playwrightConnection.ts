@@ -16,6 +16,7 @@
 
 import type { WebSocket } from '../utilsBundle';
 import type { DispatcherScope, Playwright } from '../server';
+import type * as channels from '@protocol/channels';
 import { createPlaywright, DispatcherConnection, RootDispatcher, PlaywrightDispatcher } from '../server';
 import { Browser } from '../server/browser';
 import { serverSideCallMetadata } from '../server/instrumentation';
@@ -26,7 +27,7 @@ import { AndroidDevice } from '../server/android/android';
 import { DebugControllerDispatcher } from '../server/dispatchers/debugControllerDispatcher';
 import { startProfiling, stopProfiling } from '../utils';
 import { monotonicTime } from '../utils';
-import { debugLogger } from '../common/debugLogger';
+import { debugLogger } from '../utils/debugLogger';
 
 export type ClientType = 'controller' | 'launch-browser' | 'reuse-browser' | 'pre-launched-browser-or-android';
 
@@ -75,15 +76,20 @@ export class PlaywrightConnection {
         const messageString = JSON.stringify(message);
         if (debugLogger.isEnabled('server:channel'))
           debugLogger.log('server:channel', `[${this._id}] ${monotonicTime() * 1000} SEND ► ${messageString}`);
+        if (debugLogger.isEnabled('server:metadata'))
+          this.logServerMetadata(message, messageString, 'SEND');
         ws.send(messageString);
       }
     };
     ws.on('message', async (message: string) => {
       await lock;
       const messageString = Buffer.from(message).toString();
+      const jsonMessage = JSON.parse(messageString);
       if (debugLogger.isEnabled('server:channel'))
         debugLogger.log('server:channel', `[${this._id}] ${monotonicTime() * 1000} ◀ RECV ${messageString}`);
-      this._dispatcherConnection.dispatch(JSON.parse(messageString));
+      if (debugLogger.isEnabled('server:metadata'))
+        this.logServerMetadata(jsonMessage, messageString, 'RECV');
+      this._dispatcherConnection.dispatch(jsonMessage);
     });
 
     ws.on('close', () => this._onDisconnect());
@@ -94,28 +100,28 @@ export class PlaywrightConnection {
       return;
     }
 
-    this._root = new RootDispatcher(this._dispatcherConnection, async scope => {
+    this._root = new RootDispatcher(this._dispatcherConnection, async (scope, options) => {
       await startProfiling();
       if (clientType === 'reuse-browser')
         return await this._initReuseBrowsersMode(scope);
       if (clientType === 'pre-launched-browser-or-android')
         return this._preLaunched.browser ? await this._initPreLaunchedBrowserMode(scope) : await this._initPreLaunchedAndroidMode(scope);
       if (clientType === 'launch-browser')
-        return await this._initLaunchBrowserMode(scope);
+        return await this._initLaunchBrowserMode(scope, options);
       throw new Error('Unsupported client type: ' + clientType);
     });
   }
 
-  private async _initLaunchBrowserMode(scope: RootDispatcher) {
+  private async _initLaunchBrowserMode(scope: RootDispatcher, options: channels.RootInitializeParams) {
     debugLogger.log('server', `[${this._id}] engaged launch mode for "${this._options.browserName}"`);
-    const playwright = createPlaywright({ sdkLanguage: 'javascript', isServer: true });
+    const playwright = createPlaywright({ sdkLanguage: options.sdkLanguage, isServer: true });
 
     const ownedSocksProxy = await this._createOwnedSocksProxy(playwright);
     const browser = await playwright[this._options.browserName as 'chromium'].launch(serverSideCallMetadata(), this._options.launchOptions);
 
     this._cleanups.push(async () => {
       for (const browser of playwright.allBrowsers())
-        await browser.close();
+        await browser.close({ reason: 'Connection terminated' });
     });
     browser.on(Browser.Events.Disconnected, () => {
       // Underlying browser did close for some reason - force disconnect the client.
@@ -142,7 +148,7 @@ export class PlaywrightConnection {
     // In pre-launched mode, keep only the pre-launched browser.
     for (const b of playwright.allBrowsers()) {
       if (b !== browser)
-        await b.close();
+        await b.close({ reason: 'Connection terminated' });
     }
     this._cleanups.push(() => playwrightDispatcher.cleanup());
     return playwrightDispatcher;
@@ -188,7 +194,7 @@ export class PlaywrightConnection {
       if (b === browser)
         continue;
       if (b.options.name === this._options.browserName && b.options.channel === this._options.launchOptions.channel)
-        await b.close();
+        await b.close({ reason: 'Connection terminated' });
     }
 
     if (!browser) {
@@ -208,12 +214,12 @@ export class PlaywrightConnection {
       for (const browser of playwright.allBrowsers()) {
         for (const context of browser.contexts()) {
           if (!context.pages().length)
-            await context.close(serverSideCallMetadata());
+            await context.close({ reason: 'Connection terminated' });
           else
-            await context.stopPendingOperations();
+            await context.stopPendingOperations('Connection closed');
         }
         if (!browser.contexts())
-          await browser.close();
+          await browser.close({ reason: 'Connection terminated' });
       }
     });
 
@@ -242,6 +248,17 @@ export class PlaywrightConnection {
     await stopProfiling(this._profileName);
     this._onClose();
     debugLogger.log('server', `[${this._id}] finished cleanup`);
+  }
+
+  private logServerMetadata(message: object, messageString: string, direction: 'SEND' | 'RECV') {
+    const serverLogMetadata = {
+      wallTime: Date.now(),
+      id: (message as any).id,
+      guid: (message as any).guid,
+      method: (message as any).method,
+      payloadSizeInBytes: Buffer.byteLength(messageString, 'utf-8')
+    };
+    debugLogger.log('server:metadata', (direction === 'SEND' ? 'SEND ► ' : '◀ RECV ') + JSON.stringify(serverLogMetadata));
   }
 
   async close(reason?: { code: number, reason: string }) {

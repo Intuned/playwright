@@ -288,7 +288,7 @@ APIRequestContext:
           type: array?
           items: NameValue
         postData: binary?
-        jsonData: json?
+        jsonData: string?
         formData:
           type: array?
           items: NameValue
@@ -379,6 +379,7 @@ CommonScreenshotOptions:
           frame: Frame
           selector: string
     maskColor: string?
+    style: string?
 
 LaunchOptions:
   type: mixin
@@ -411,6 +412,7 @@ LaunchOptions:
     downloadsPath: string?
     tracesDir: string?
     chromiumSandbox: boolean?
+    firefoxUserPrefs: json?
 
 
 ContextOptions:
@@ -474,7 +476,12 @@ ContextOptions:
       - active
       - none
       - no-override
-    acceptDownloads: boolean?
+    acceptDownloads:
+      type: enum?
+      literals:
+      - accept
+      - deny
+      - internal-browser-default
     baseURL: string?
     recordVideo:
       type: object?
@@ -495,6 +502,37 @@ ContextOptions:
 
 LocalUtils:
   type: interface
+
+  initializer:
+    deviceDescriptors:
+      type: array
+      items:
+        type: object
+        properties:
+          name: string
+          descriptor:
+            type: object
+            properties:
+              userAgent: string
+              viewport:
+                type: object
+                properties:
+                  width: number
+                  height: number
+              screen:
+                type: object?
+                properties:
+                  width: number
+                  height: number
+              deviceScaleFactor: number
+              isMobile: boolean
+              hasTouch: boolean
+              defaultBrowserType:
+                type: enum
+                literals:
+                - chromium
+                - firefox
+                - webkit
 
   commands:
 
@@ -609,36 +647,7 @@ Playwright:
     webkit: BrowserType
     android: Android
     electron: Electron
-    utils: LocalUtils
-    deviceDescriptors:
-      type: array
-      items:
-        type: object
-        properties:
-          name: string
-          descriptor:
-            type: object
-            properties:
-              userAgent: string
-              viewport:
-                type: object
-                properties:
-                  width: number
-                  height: number
-              screen:
-                type: object?
-                properties:
-                  width: number
-                  height: number
-              deviceScaleFactor: number
-              isMobile: boolean
-              hasTouch: boolean
-              defaultBrowserType:
-                type: enum
-                literals:
-                - chromium
-                - firefox
-                - webkit
+    utils: LocalUtils?
     selectors: Selectors
     # Only present when connecting remotely via BrowserType.connect() method.
     preLaunchedBrowser: Browser?
@@ -674,10 +683,10 @@ Playwright:
           type: object?
           properties:
             cookies:
-              type: array
+              type: array?
               items: NetworkCookie
             origins:
-              type: array
+              type: array?
               items: OriginStorage
         tracesDir: string?
 
@@ -755,6 +764,10 @@ DebugController:
         selector: string
         locator: string
 
+    setModeRequested:
+      parameters:
+        mode: string
+
     stateChanged:
       parameters:
         pageCount: number
@@ -771,23 +784,6 @@ DebugController:
     paused:
       parameters:
         paused: boolean
-
-    # Deprecated
-    browsersChanged:
-      parameters:
-        browsers:
-          type: array
-          items:
-            type: object
-            properties:
-              contexts:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    pages:
-                      type: array
-                      items: string
 
 SocksSupport:
   type: interface
@@ -861,7 +857,6 @@ BrowserType:
     launch:
       parameters:
         $mixin: LaunchOptions
-        firefoxUserPrefs: json?
         slowMo: number?
       returns:
         browser: Browser
@@ -897,6 +892,8 @@ Browser:
   commands:
 
     close:
+      parameters:
+        reason: string?
 
     killForTests:
 
@@ -948,6 +945,10 @@ Browser:
       returns:
         context: BrowserContext
 
+    stopPendingOperations:
+      parameters:
+        reason: string
+
     newBrowserCDPSession:
       returns:
         session: CDPSession
@@ -955,7 +956,6 @@ Browser:
     startTracing:
       parameters:
         page: Page?
-        path: string?
         screenshots: boolean?
         categories:
           type: array?
@@ -963,12 +963,27 @@ Browser:
 
     stopTracing:
       returns:
-        binary: binary
+        artifact: Artifact
 
 
   events:
 
     close:
+
+ConsoleMessage:
+  type: mixin
+  properties:
+    type: string
+    text: string
+    args:
+      type: array
+      items: JSHandle
+    location:
+      type: object
+      properties:
+        url: string
+        lineNumber: number
+        columnNumber: number
 
 
 EventTarget:
@@ -1016,10 +1031,22 @@ BrowserContext:
         source: string
 
     clearCookies:
+      parameters:
+        name: string?
+        nameRegexSource: string?
+        nameRegexFlags: string?
+        domain: string?
+        domainRegexSource: string?
+        domainRegexFlags: string?
+        path: string?
+        pathRegexSource: string?
+        pathRegexFlags: string?
 
     clearPermissions:
 
     close:
+      parameters:
+        reason: string?
 
     cookies:
       parameters:
@@ -1171,6 +1198,7 @@ BrowserContext:
     createTempFile:
       parameters:
         name: string
+        lastModifiedMs: number?
       returns:
         writableStream: WritableStream
 
@@ -1195,7 +1223,8 @@ BrowserContext:
 
     console:
       parameters:
-        message: ConsoleMessage
+        $mixin: ConsoleMessage
+        page: Page
 
     close:
 
@@ -1205,6 +1234,11 @@ BrowserContext:
 
     page:
       parameters:
+        page: Page
+
+    pageError:
+      parameters:
+        error: SerializedError
         page: Page
 
     route:
@@ -1279,6 +1313,7 @@ Page:
     close:
       parameters:
         runBeforeUnload: boolean?
+        reason: string?
 
     emulateMedia:
       parameters:
@@ -1335,6 +1370,22 @@ Page:
         slowMo: true
         snapshot: true
 
+    registerLocatorHandler:
+      parameters:
+        selector: string
+        noWaitAfter: boolean?
+      returns:
+        uid: number
+
+    resolveLocatorHandlerNoReply:
+      parameters:
+        uid: number
+        remove: boolean?
+
+    unregisterLocatorHandler:
+      parameters:
+        uid: number
+
     reload:
       parameters:
         timeout: number?
@@ -1355,19 +1406,13 @@ Page:
           properties:
             frame: Frame
             selector: string
-        comparatorOptions:
-          type: object?
-          properties:
-            comparator: string?
-            maxDiffPixels: number?
-            maxDiffPixelRatio: number?
-            threshold: number?
-        screenshotOptions:
-          type: object?
-          properties:
-            fullPage: boolean?
-            clip: Rect?
-            $mixin: CommonScreenshotOptions
+        comparator: string?
+        maxDiffPixels: number?
+        maxDiffPixelRatio: number?
+        threshold: number?
+        fullPage: boolean?
+        clip: Rect?
+        $mixin: CommonScreenshotOptions
       returns:
         diff: binary?
         errorMessage: string?
@@ -1554,6 +1599,8 @@ Page:
             bottom: string?
             left: string?
             right: string?
+        tagged: boolean?
+        outline: boolean?
       returns:
         pdf: binary
 
@@ -1654,9 +1701,9 @@ Page:
       parameters:
         frame: Frame
 
-    pageError:
+    locatorHandlerTriggered:
       parameters:
-        error: SerializedError
+        uid: number
 
     route:
       parameters:
@@ -1767,6 +1814,7 @@ Frame:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -1818,6 +1866,7 @@ Frame:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -1932,6 +1981,7 @@ Frame:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -2105,27 +2155,15 @@ Frame:
       parameters:
         selector: string
         strict: boolean?
-        files:
-          type: array
+        # Only one of payloads, localPaths and streams should be present.
+        payloads:
+          type: array?
           items:
             type: object
             properties:
               name: string
               mimeType: string?
               buffer: binary
-        timeout: number?
-        noWaitAfter: boolean?
-      flags:
-        slowMo: true
-        snapshot: true
-        pausesBeforeInput: true
-
-    # This method should be used if one of the files is large (>50Mb).
-    setInputFilePaths:
-      parameters:
-        selector: string
-        strict: boolean?
-        # Only one of localPaths and streams should be present.
         localPaths:
           type: array?
           items: string
@@ -2152,6 +2190,7 @@ Frame:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -2430,6 +2469,7 @@ ElementHandle:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -2463,6 +2503,7 @@ ElementHandle:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -2520,6 +2561,7 @@ ElementHandle:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -2673,25 +2715,15 @@ ElementHandle:
 
     setInputFiles:
       parameters:
-        files:
-          type: array
+        # Only one of payloads, localPaths and streams should be present.
+        payloads:
+          type: array?
           items:
             type: object
             properties:
               name: string
               mimeType: string?
               buffer: binary
-        timeout: number?
-        noWaitAfter: boolean?
-      flags:
-        slowMo: true
-        snapshot: true
-        pausesBeforeInput: true
-
-    # This method should be used if one of the files is large (>50Mb).
-    setInputFilePaths:
-      parameters:
-        # Only one of localPaths and streams should be present.
         localPaths:
           type: array?
           items: string
@@ -2716,6 +2748,7 @@ ElementHandle:
             literals:
             - Alt
             - Control
+            - ControlOrMeta
             - Meta
             - Shift
         position: Point?
@@ -2962,25 +2995,6 @@ WebSocket:
     close:
 
 
-ConsoleMessage:
-  type: interface
-
-  initializer:
-    page: Page
-    type: string
-    text: string
-    args:
-      type: array
-      items: JSHandle
-    location:
-      type: object
-      properties:
-        url: string
-        lineNumber: number
-        columnNumber: number
-
-
-
 BindingCall:
   type: interface
 
@@ -3032,7 +3046,7 @@ Tracing:
         name: string?
         snapshots: boolean?
         screenshots: boolean?
-        sources: boolean?
+        live: boolean?
 
     tracingStartChunk:
       parameters:
@@ -3071,7 +3085,7 @@ Artifact:
 
     pathAfterFinished:
       returns:
-        value: string?
+        value: string
 
     # Blocks path/failure/delete/context.close until saved to the local |path|.
     saveAs:
@@ -3089,7 +3103,7 @@ Artifact:
 
     stream:
       returns:
-        stream: Stream?
+        stream: Stream
 
     cancel:
 
@@ -3160,7 +3174,12 @@ Electron:
           type: array?
           items: NameValue
         timeout: number?
-        acceptDownloads: boolean?
+        acceptDownloads:
+          type: enum?
+          literals:
+          - accept
+          - deny
+          - internal-browser-default
         bypassCSP: boolean?
         colorScheme:
           type: enum?
@@ -3237,11 +3256,21 @@ ElectronApplication:
       returns:
         handle: JSHandle
 
+    updateSubscription:
+      parameters:
+        event:
+          type: enum
+          literals:
+          - console
+        enabled: boolean
+
     close:
 
   events:
     close:
-
+    console:
+      parameters:
+        $mixin: ConsoleMessage
 
 Android:
   type: interface
@@ -3556,4 +3585,4 @@ JsonPipe:
 
     closed:
       parameters:
-        error: SerializedError?
+        reason: string?

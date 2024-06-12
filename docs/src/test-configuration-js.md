@@ -3,6 +3,8 @@ id: test-configuration
 title: "Test configuration"
 ---
 
+## Introduction
+
 Playwright has many options to configure how your tests are run. You can specify these options in the configuration file. Note that test runner options are **top-level**, do not put them into the `use` section.
 
 ## Basic Configuration
@@ -133,7 +135,8 @@ export default defineConfig({
     },
 
     toMatchSnapshot: {
-      // An acceptable ratio of pixels that are different to the total amount of pixels, between 0 and 1.
+      // An acceptable ratio of pixels that are different to the
+      // total amount of pixels, between 0 and 1.
       maxDiffPixelRatio: 0.1,
     },
   },
@@ -144,89 +147,6 @@ export default defineConfig({
 | Option | Description |
 | :- | :- |
 | [`property: TestConfig.expect`] | [Web first assertions](./test-assertions.md) like `expect(locator).toHaveText()` have a separate timeout of 5 seconds by default. This is the maximum time the `expect()` should wait for the condition to be met. Learn more about [test and expect timeouts](./test-timeouts.md) and how to set them for a single test. |
-| [`method: PageAssertions.toHaveScreenshot#1`] | Configuration for the `expect(locator).toHaveScreeshot()` method. |
+| [`method: PageAssertions.toHaveScreenshot#1`] | Configuration for the `expect(locator).toHaveScreenshot()` method. |
 | [`method: SnapshotAssertions.toMatchSnapshot#1`]| Configuration for the `expect(locator).toMatchSnapshot()` method.|
 
-
-### Add custom matchers using expect.extend
-
-You can extend Playwright assertions by providing custom matchers. These matchers will be available on the `expect` object.
-
-In this example we add a custom `toBeWithinRange` function in the configuration file. Custom matcher should return a `message` callback and a `pass` flag indicating whether the assertion passed.
-
-```js tab=js-js title="playwright.config.ts"
-const { expect, defineConfig } = require('@playwright/test');
-
-expect.extend({
-  toBeWithinRange(received, floor, ceiling) {
-    const pass = received >= floor && received <= ceiling;
-    if (pass) {
-      return {
-        message: () => 'passed',
-        pass: true,
-      };
-    } else {
-      return {
-        message: () => 'failed',
-        pass: false,
-      };
-    }
-  },
-});
-
-module.exports = defineConfig({});
-```
-
-```js tab=js-ts title="playwright.config.ts"
-import { expect, defineConfig } from '@playwright/test';
-
-expect.extend({
-  toBeWithinRange(received: number, floor: number, ceiling: number) {
-    const pass = received >= floor && received <= ceiling;
-    if (pass) {
-      return {
-        message: () => 'passed',
-        pass: true,
-      };
-    } else {
-      return {
-        message: () => 'failed',
-        pass: false,
-      };
-    }
-  },
-});
-
-export default defineConfig({});
-```
-
-Now we can use `toBeWithinRange` in the test.
-
-```js title="example.spec.ts"
-import { test, expect } from '@playwright/test';
-
-test('numeric ranges', () => {
-  expect(100).toBeWithinRange(90, 110);
-  expect(101).not.toBeWithinRange(0, 100);
-});
-```
-
-:::note
-Do not confuse Playwright's `expect` with the [`expect` library](https://jestjs.io/docs/expect). The latter is not fully integrated with Playwright test runner, so make sure to use Playwright's own `expect`.
-:::
-
-For TypeScript, also add the following to your [`global.d.ts`](https://www.typescriptlang.org/docs/handbook/declaration-files/templates/global-d-ts.html). If it does not exist, you need to create it inside your repository. Make sure that your `global.d.ts` gets included inside your `tsconfig.json` via the `include` or `compilerOptions.typeRoots` option so that your IDE will pick it up.
-
-You don't need it for JavaScript.
-
-```js title="global.d.ts"
-export {};
-
-declare global {
- namespace PlaywrightTest {
-    interface Matchers<R, T> {
-      toBeWithinRange(a: number, b: number): R;
-    }
-  }
-}
-```

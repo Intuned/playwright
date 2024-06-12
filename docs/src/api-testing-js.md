@@ -3,6 +3,8 @@ id: api-testing
 title: "API testing"
 ---
 
+## Introduction
+
 Playwright can be used to get access to the [REST](https://en.wikipedia.org/wiki/Representational_state_transfer) API of
 your application.
 
@@ -41,6 +43,24 @@ export default defineConfig({
       // Add authorization token to all requests.
       // Assuming personal access token available in the environment.
       'Authorization': `token ${process.env.API_TOKEN}`,
+    },
+  }
+});
+```
+
+**Proxy configuration**
+
+If your tests need to run behind a proxy, you can specify this in the config and the `request` fixture
+will pick it up automatically:
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  use: {
+    proxy: {
+      server: 'http://my-proxy:8080',
+      username: 'user',
+      password: 'secret'
     },
   }
 });
@@ -234,7 +254,7 @@ test.afterAll(async ({ }) => {
   await apiContext.dispose();
 });
 
-test('last created issue should be on the server', async ({ page, request }) => {
+test('last created issue should be on the server', async ({ page }) => {
   await page.goto(`https://github.com/${USER}/${REPO}/issues`);
   await page.getByText('New Issue').click();
   await page.getByRole('textbox', { name: 'Title' }).fill('Bug report 1');
@@ -242,7 +262,9 @@ test('last created issue should be on the server', async ({ page, request }) => 
   await page.getByText('Submit new issue').click();
   const issueId = page.url().substr(page.url().lastIndexOf('/'));
 
-  const newIssue = await request.get(`https://api.github.com/repos/${USER}/${REPO}/issues/${issueId}`);
+  const newIssue = await apiContext.get(
+      `https://api.github.com/repos/${USER}/${REPO}/issues/${issueId}`
+  );
   expect(newIssue.ok()).toBeTruthy();
   expect(newIssue.json()).toEqual(expect.objectContaining({
     title: 'Bug report 1'
@@ -288,21 +310,28 @@ The main difference is that [APIRequestContext] accessible via [`property: Brows
 automatically update browser cookies if [APIResponse] has `Set-Cookie` header:
 
 ```js
-test('context request will share cookie storage with its browser context', async ({ page, context }) => {
+test('context request will share cookie storage with its browser context', async ({
+  page,
+  context,
+}) => {
   await context.route('https://www.github.com/', async route => {
     // Send an API request that shares cookie storage with the browser context.
     const response = await context.request.fetch(route.request());
     const responseHeaders = response.headers();
 
     // The response will have 'Set-Cookie' header.
-    const responseCookies = new Map(responseHeaders['set-cookie'].split('\n').map(c => c.split(';', 2)[0].split('=')));
+    const responseCookies = new Map(responseHeaders['set-cookie']
+        .split('\n')
+        .map(c => c.split(';', 2)[0].split('=')));
     // The response will have 3 cookies in 'Set-Cookie' header.
     expect(responseCookies.size).toBe(3);
     const contextCookies = await context.cookies();
     // The browser context will already contain all the cookies from the API response.
-    expect(new Map(contextCookies.map(({ name, value }) => [name, value]))).toEqual(responseCookies);
+    expect(new Map(contextCookies.map(({ name, value }) =>
+      [name, value])
+    )).toEqual(responseCookies);
 
-    route.fulfill({
+    await route.fulfill({
       response,
       headers: { ...responseHeaders, foo: 'bar' },
     });
@@ -315,14 +344,21 @@ If you don't want [APIRequestContext] to use and update cookies from the browser
 create a new instance of [APIRequestContext] which will have its own isolated cookies:
 
 ```js
-test('global context request has isolated cookie storage', async ({ page, context, browser, playwright }) => {
+test('global context request has isolated cookie storage', async ({
+  page,
+  context,
+  browser,
+  playwright
+}) => {
   // Create a new instance of APIRequestContext with isolated cookie storage.
   const request = await playwright.request.newContext();
   await context.route('https://www.github.com/', async route => {
     const response = await request.fetch(route.request());
     const responseHeaders = response.headers();
 
-    const responseCookies = new Map(responseHeaders['set-cookie'].split('\n').map(c => c.split(';', 2)[0].split('=')));
+    const responseCookies = new Map(responseHeaders['set-cookie']
+        .split('\n')
+        .map(c => c.split(';', 2)[0].split('=')));
     // The response will have 3 cookies in 'Set-Cookie' header.
     expect(responseCookies.size).toBe(3);
     const contextCookies = await context.cookies();
@@ -335,9 +371,11 @@ test('global context request has isolated cookie storage', async ({ page, contex
     const browserContext2 = await browser.newContext({ storageState });
     const contextCookies2 = await browserContext2.cookies();
     // The new browser context will already contain all the cookies from the API response.
-    expect(new Map(contextCookies2.map(({ name, value }) => [name, value]))).toEqual(responseCookies);
+    expect(
+        new Map(contextCookies2.map(({ name, value }) => [name, value]))
+    ).toEqual(responseCookies);
 
-    route.fulfill({
+    await route.fulfill({
       response,
       headers: { ...responseHeaders, foo: 'bar' },
     });

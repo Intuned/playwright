@@ -47,12 +47,12 @@ test('should update trace live', async ({ runUITest, server }) => {
   await page.getByText('live test').dblclick();
 
   // It should halt on loading one.html.
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
   ).toHaveText([
-    /browserContext.newPage[\d.]+m?s/,
+    /Before Hooks[\d.]+m?s/,
     /page.gotohttp:\/\/localhost:\d+\/one.html/
   ]);
 
@@ -78,7 +78,7 @@ test('should update trace live', async ({ runUITest, server }) => {
       'verify snapshot'
   ).toHaveText('One');
   await expect(listItem).toHaveText([
-    /browserContext.newPage[\d.]+m?s/,
+    /Before Hooks[\d.]+m?s/,
     /page.gotohttp:\/\/localhost:\d+\/one.html[\d.]+m?s/,
     /page.gotohttp:\/\/localhost:\d+\/two.html/
   ]);
@@ -109,8 +109,6 @@ test('should update trace live', async ({ runUITest, server }) => {
     /page.gotohttp:\/\/localhost:\d+\/one.html[\d.]+m?s/,
     /page.gotohttp:\/\/localhost:\d+\/two.html[\d.]+m?s/,
     /After Hooks[\d.]+m?s/,
-    /fixture: page[\d.]+m?s/,
-    /fixture: context[\d.]+m?s/,
   ]);
 });
 
@@ -134,18 +132,18 @@ test('should preserve action list selection upon live trace update', async ({ ru
   await page.getByText('live test').dblclick();
 
   // It should wait on the latch.
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
   ).toHaveText([
-    /browserContext.newPage[\d.]+m?s/,
+    /Before Hooks[\d.]+m?s/,
     /page.gotoabout:blank[\d.]+m?s/,
     /page.setContent[\d.]+m?s/,
   ]);
 
   // Manually select page.goto.
-  await page.getByTestId('action-list').getByText('page.goto').click();
+  await page.getByTestId('actions-tree').getByText('page.goto').click();
 
   // Generate more actions and check that we are still on the page.goto action.
   latch.open();
@@ -153,7 +151,7 @@ test('should preserve action list selection upon live trace update', async ({ ru
       listItem,
       'action list'
   ).toHaveText([
-    /browserContext.newPage[\d.]+m?s/,
+    /Before Hooks[\d.]+m?s/,
     /page.gotoabout:blank[\d.]+m?s/,
     /page.setContent[\d.]+m?s/,
     /page.setContent[\d.]+m?s/,
@@ -195,19 +193,19 @@ test('should update tracing network live', async ({ runUITest, server }) => {
   await page.getByText('live test').dblclick();
 
   // It should wait on the latch.
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
   ).toHaveText([
-    /browserContext.newPage[\d.]+m?s/,
+    /Before Hooks[\d.]+m?s/,
     /page.gotohttp:\/\/localhost:\d+\/one.html[\d.]+m?s/,
     /page.setContent[\d.]+m?s/,
   ]);
 
   // Once page.setContent is visible, we can be sure that page.goto has all required
   // resources in the trace. Switch to it and check that everything renders.
-  await page.getByTestId('action-list').getByText('page.goto').click();
+  await page.getByTestId('actions-tree').getByText('page.goto').click();
 
   await expect(
       page.frameLocator('iframe.snapshot-visible[name=snapshot]').locator('body'),
@@ -235,19 +233,17 @@ test('should show trace w/ multiple contexts', async ({ runUITest, server, creat
   await page.getByText('live test').dblclick();
 
   // It should wait on the latch.
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
   ).toHaveText([
-    /apiRequestContext.get[\d.]+m?s/,
-    /browserContext.newPage[\d.]+m?s/,
+    /Before Hooks[\d.]+m?s/,
     /page.gotoabout:blank[\d.]+m?s/,
   ]);
 
   latch.open();
 });
-
 
 test('should show live trace for serial', async ({ runUITest, server, createLatch }) => {
   const latch = createLatch();
@@ -282,12 +278,73 @@ test('should show live trace for serial', async ({ runUITest, server, createLatc
   await page.getByText('two', { exact: true }).click();
   await page.getByTitle('Run all').click();
 
-  const listItem = page.getByTestId('action-list').getByRole('listitem');
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
   await expect(
       listItem,
       'action list'
   ).toHaveText([
+    /Before Hooks[\d.]+m?s/,
     /locator.unchecklocator\('input'\)[\d.]+m?s/,
     /expect.not.toBeCheckedlocator\('input'\)[\d.]/,
+  ]);
+});
+
+test('should show live trace from hooks', async ({ runUITest, createLatch }) => {
+  const latch1 = createLatch();
+  const latch2 = createLatch();
+
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test.beforeAll(async ({ browser }) => {
+        const page = await browser.newPage();
+        ${latch1.blockingCode}
+        await page.close();
+      });
+      test.beforeEach(async ({ browser }) => {
+        const page = await browser.newPage();
+        ${latch2.blockingCode}
+        await page.close();
+      });
+      test('test one', async ({ page }) => {
+        await page.setContent('Page content');
+      });
+    `,
+  });
+
+  await expect.poll(dumpTestTree(page)).toBe(`
+    ▼ ◯ a.test.ts
+        ◯ test one
+  `);
+  await page.getByText('test one').dblclick();
+
+  const listItem = page.getByTestId('actions-tree').getByRole('listitem');
+  await expect(
+      listItem,
+      'action list'
+  ).toHaveText([
+    /Before Hooks/,
+    /beforeAll hook/,
+    /fixture: browser/,
+    /browser.newPage/,
+  ]);
+  latch1.open();
+  await expect(
+      listItem,
+      'action list'
+  ).toHaveText([
+    /Before Hooks/,
+    /beforeAll hook/,
+    /beforeEach hook/,
+    /browser.newPage/,
+  ]);
+  latch2.open();
+  await expect(
+      listItem,
+      'action list'
+  ).toHaveText([
+    /Before Hooks/,
+    /page.setContent/,
+    /After Hooks/,
   ]);
 });

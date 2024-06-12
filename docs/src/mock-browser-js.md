@@ -3,6 +3,8 @@ id: mock-browser-apis
 title: "Mock browser APIs"
 ---
 
+## Introduction
+
 Playwright provides native support for most of the browser features. However, there are some experimental APIs
 and APIs which are not (yet) fully supported by all browsers. Playwright usually doesn't provide dedicated
 automation APIs in such cases. You can use mocks to test the behavior of your application in such cases. This guide gives a few examples.
@@ -56,6 +58,23 @@ test('show battery status', async ({ page }) => {
   await expect(page.locator('.battery-fully')).toHaveText('00:30');
 });
 
+```
+
+## Mocking read-only APIs
+
+Some APIs are read-only so you won't be able to assign to a navigator property. For example,
+
+```js
+// Following line will have no effect.
+navigator.cookieEnabled = true;
+```
+
+However, if the property is [configurable](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/defineProperty#configurable), you can still override it using the plain JavaScript:
+
+```js
+await page.addInitScript(() => {
+  Object.defineProperty(Object.getPrototypeOf(navigator), 'cookieEnabled', { value: false });
+});
 ```
 
 ## Verifying API calls

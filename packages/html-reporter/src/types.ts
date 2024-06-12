@@ -23,11 +23,10 @@ export type Stats = {
   flaky: number;
   skipped: number;
   ok: boolean;
-  duration: number;
 };
 
 export type FilteredStats = {
-  total: number
+  total: number,
   duration: number,
 };
 
@@ -42,6 +41,9 @@ export type HTMLReport = {
   files: TestFileSummary[];
   stats: Stats;
   projectNames: string[];
+  startTime: number;
+  duration: number;
+  errors: string[];  // Top-level errors that are not attributed to any test.
 };
 
 export type TestFile = {
@@ -66,6 +68,7 @@ export type TestCaseSummary = {
   projectName: string;
   location: Location;
   annotations: TestCaseAnnotation[];
+  tags: string[];
   outcome: 'skipped' | 'expected' | 'unexpected' | 'flaky';
   duration: number;
   ok: boolean;

@@ -3,6 +3,8 @@ id: service-workers-experimental
 title: "(Experimental) Service Worker Network Events"
 ---
 
+## Introduction
+
 :::warning
 If you're looking to do general network mocking, routing, and interception, please see the [Network Guide](./network.md) first. Playwright provides built-in APIs for this use case that don't require the information below. However, if you're interested in requests made by Service Workers themselves, please read below.
 :::
@@ -42,7 +44,9 @@ await page.evaluate(async () => {
   const registration = await window.navigator.serviceWorker.getRegistration();
   if (registration.active?.state === 'activated')
     return;
-  await new Promise(res => window.navigator.serviceWorker.addEventListener('controllerchange', res));
+  await new Promise(res =>
+    window.navigator.serviceWorker.addEventListener('controllerchange', res),
+  );
 });
 ```
 
@@ -133,10 +137,12 @@ self.addEventListener('fetch', event => {
       (async () => {
         // 1. Try to first serve directly from caches
         const response = await caches.match(event.request);
-        if (response) return response;
+        if (response)
+          return response;
 
         // 2. Re-write request for /foo to /bar
-        if (event.request.url.endsWith('foo')) return fetch('./bar');
+        if (event.request.url.endsWith('foo'))
+          return fetch('./bar');
 
         // 3. Prevent tracker.js from being retrieved, and returns a placeholder response
         if (event.request.url.endsWith('tracker.js')) {

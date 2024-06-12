@@ -31,7 +31,7 @@ export type SnapshotData = {
   collectionTime: number,
 };
 
-export function frameSnapshotStreamer(snapshotStreamer: string) {
+export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: boolean) {
   // Communication with Playwright.
   if ((window as any)[snapshotStreamer])
     return;
@@ -46,6 +46,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
   const kStyleSheetAttribute = '__playwright_style_sheet_';
   const kTargetAttribute = '__playwright_target__';
   const kCustomElementsAttribute = '__playwright_custom_elements__';
+  const kCurrentSrcAttribute = '__playwright_current_src__';
 
   // Symbols for our own info on Nodes/StyleSheets.
   const kSnapshotFrameId = Symbol('__playwright_snapshot_frameid_');
@@ -80,7 +81,6 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
   }
 
   class Streamer {
-    private _removeNoScript = true;
     private _lastSnapshotNumber = 0;
     private _staleStyleSheets = new Set<CSSStyleSheet>();
     private _readingStyleSheet = false;  // To avoid invalidating due to our own reads.
@@ -88,6 +88,10 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
     private _observer: MutationObserver;
 
     constructor() {
+      const invalidateCSSGroupingRule = (rule: CSSGroupingRule) => {
+        if (rule.parentStyleSheet)
+          this._invalidateStyleSheet(rule.parentStyleSheet);
+      };
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'insertRule', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'deleteRule', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'addRule', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
@@ -95,6 +99,9 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       this._interceptNativeGetter(window.CSSStyleSheet.prototype, 'rules', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeGetter(window.CSSStyleSheet.prototype, 'cssRules', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'replaceSync', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
+      this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'insertRule', invalidateCSSGroupingRule);
+      this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'deleteRule', invalidateCSSGroupingRule);
+      this._interceptNativeGetter(window.CSSGroupingRule.prototype, 'cssRules', invalidateCSSGroupingRule);
       this._interceptNativeAsyncMethod(window.CSSStyleSheet.prototype, 'replace', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
 
       this._fakeBase = document.createElement('base');
@@ -136,7 +143,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
         if (!event.detail)
           return;
         const callId = event.detail as string;
-        (event.target as any).__playwright_target__ = callId;
+        (event.composedPath()[0] as any).__playwright_target__ = callId;
       });
     }
 
@@ -329,11 +336,11 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           if (rel === 'preload' || rel === 'prefetch')
             return;
         }
-        if (this._removeNoScript && nodeName === 'NOSCRIPT')
+        if (removeNoScript && nodeName === 'NOSCRIPT')
           return;
         if (nodeName === 'META' && (node as HTMLMetaElement).httpEquiv.toLowerCase() === 'content-security-policy')
           return;
-        // Skip iframes which are inside document's head as they are not visisble.
+        // Skip iframes which are inside document's head as they are not visible.
         // See https://github.com/microsoft/playwright/issues/12005.
         if ((nodeName === 'IFRAME' || nodeName === 'FRAME') && headNesting)
           return;
@@ -483,6 +490,14 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           expectValue(kCustomElementsAttribute);
           expectValue(value);
           attrs[kCustomElementsAttribute] = value;
+        }
+
+        // Process currentSrc before bailing out since it depends on JS, not the DOM.
+        if (nodeName === 'IMG' || nodeName === 'PICTURE') {
+          const value = nodeName === 'PICTURE' ? '' : this._sanitizeUrl((node as HTMLImageElement).currentSrc);
+          expectValue(kCurrentSrcAttribute);
+          expectValue(value);
+          attrs[kCurrentSrcAttribute] = value;
         }
 
         // We can skip attributes comparison because nothing else has changed,

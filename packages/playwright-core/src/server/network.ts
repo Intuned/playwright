@@ -52,7 +52,7 @@ export function filterCookies(cookies: channels.NetworkCookie[], urls: string[])
 // Rollover to 5-digit year:
 // 253402300799 == Fri, 31 Dec 9999 23:59:59 +0000 (UTC)
 // 253402300800 == Sat,  1 Jan 1000 00:00:00 +0000 (UTC)
-const kMaxCookieExpiresDateInSeconds = 253402300799;
+export const kMaxCookieExpiresDateInSeconds = 253402300799;
 
 export function rewriteCookies(cookies: channels.SetNetworkCookie[]): channels.SetNetworkCookie[] {
   return cookies.map(c => {
@@ -289,7 +289,7 @@ export class Route extends SdkObject {
     await this._delegate.fulfill({
       status: overrides.status || 200,
       headers,
-      body,
+      body: body!,
       isBase64,
     });
     this._endHandling();

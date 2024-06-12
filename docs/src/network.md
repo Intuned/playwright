@@ -271,9 +271,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = await chromium.launch()
     page = await browser.new_page()
@@ -290,9 +290,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = chromium.launch()
     page = browser.new_page()
@@ -495,10 +495,10 @@ await page.GotoAsync("https://example.com");
 
 ```js
 // Delete header
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   const headers = route.request().headers();
   delete headers['X-Secret'];
-  route.continue({ headers });
+  await route.continue({ headers });
 });
 
 // Continue requests as POST.
@@ -522,7 +522,7 @@ page.route("**/*", route -> route.resume(new Route.ResumeOptions().setMethod("PO
 async def handle_route(route):
     headers = route.request.headers
     del headers["x-secret"]
-    route.continue_(headers=headers)
+    await route.continue_(headers=headers)
 await page.route("**/*", handle_route)
 
 # Continue requests as POST.
@@ -550,7 +550,7 @@ await page.RouteAsync("**/*", async route => {
 });
 
 // Continue requests as POST.
-await page.RouteAsync("**/*", async route => await route.ContinueAsync(method: "POST"));
+await Page.RouteAsync("**/*", async route => await route.ContinueAsync(new() { Method = "POST" }));
 ```
 
 You can continue requests with modifications. Example above removes an HTTP header from the outgoing requests.
@@ -617,7 +617,7 @@ await page.route('**/title.html', async route => {
   // Add a prefix to the title.
   let body = await response.text();
   body = body.replace('<title>', '<title>My prefix:');
-  route.fulfill({
+  await route.fulfill({
     // Pass all fields from the response.
     response,
     // Override response body.

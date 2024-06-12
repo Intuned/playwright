@@ -33,7 +33,7 @@ import childProcess from 'child_process';
 
 type ProcessData = {
   pid: number, // process ID
-  pgrp: number, // process groupd ID
+  pgrp: number, // process group ID
   children: Set<ProcessData>, // direct children of the process
 };
 
@@ -47,7 +47,7 @@ function readAllProcessesLinux(): { pid: number, ppid: number, pgrp: number }[] 
       const statFile = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
       // Format of /proc/*/stat is described https://man7.org/linux/man-pages/man5/proc.5.html
       const match = statFile.match(/^(?<pid>\d+)\s+\((?<comm>.*)\)\s+(?<state>R|S|D|Z|T|t|W|X|x|K|W|P)\s+(?<ppid>\d+)\s+(?<pgrp>\d+)/);
-      if (match) {
+      if (match && match.groups) {
         result.push({
           pid: +match.groups.pid,
           ppid: +match.groups.ppid,
@@ -89,17 +89,19 @@ function buildProcessTreePosix(pid: number): ProcessData {
     if (parent && child)
       parent.children.add(child);
   }
-  return pidToProcess.get(pid);
+  return pidToProcess.get(pid)!;
 }
 
 export class TestChildProcess {
   params: TestChildParams;
   process: ChildProcess;
   output = '';
+  stdout = '';
+  stderr = '';
   fullOutput = '';
   onOutput?: (chunk: string | Buffer) => void;
-  exited: Promise<{ exitCode: number, signal: string | null }>;
-  exitCode: Promise<number>;
+  exited: Promise<{ exitCode: number | null, signal: string | null }>;
+  exitCode: Promise<number | null>;
 
   private _outputCallbacks = new Set<() => void>();
 
@@ -121,8 +123,12 @@ export class TestChildProcess {
       process.stdout.write(`\n\nLaunching ${params.command.join(' ')}\n`);
     this.onOutput = params.onOutput;
 
-    const appendChunk = (chunk: string | Buffer) => {
+    const appendChunk = (type: 'stdout' | 'stderr', chunk: string | Buffer) => {
       this.output += String(chunk);
+      if (type === 'stderr')
+        this.stderr += String(chunk);
+      else
+        this.stdout += String(chunk);
       if (process.env.PWTEST_DEBUG)
         process.stdout.write(String(chunk));
       else
@@ -133,8 +139,8 @@ export class TestChildProcess {
       this._outputCallbacks.clear();
     };
 
-    this.process.stderr.on('data', appendChunk);
-    this.process.stdout.on('data', appendChunk);
+    this.process.stderr!.on('data', appendChunk.bind(null, 'stderr'));
+    this.process.stdout!.on('data', appendChunk.bind(null, 'stdout'));
 
     const killProcessGroup = this._killProcessTree.bind(this, 'SIGKILL');
     process.on('exit', killProcessGroup);
@@ -204,8 +210,8 @@ export class TestChildProcess {
       throw new Error(`Process received signal: ${r.signal}`);
   }
 
-  async waitForOutput(substring: string) {
-    while (!stripAnsi(this.output).includes(substring))
+  async waitForOutput(substring: string, count = 1) {
+    while (countTimes(stripAnsi(this.output), substring) < count)
       await new Promise<void>(f => this._outputCallbacks.add(f));
   }
 
@@ -214,7 +220,7 @@ export class TestChildProcess {
   }
 
   write(chars: string) {
-    this.process.stdin.write(chars);
+    this.process.stdin!.write(chars);
   }
 }
 
@@ -275,3 +281,15 @@ export const commonFixtures: Fixtures<CommonFixtures, CommonWorkerFixtures> = {
     token.canceled = true;
   },
 };
+
+export function countTimes(s: string, sub: string): number {
+  let result = 0;
+  for (let index = 0; index !== -1;) {
+    index = s.indexOf(sub, index);
+    if (index !== -1) {
+      result++;
+      index += sub.length;
+    }
+  }
+  return result;
+}

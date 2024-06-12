@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {FrameTree} = ChromeUtils.import('chrome://juggler/content/content/FrameTree.js');
 const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
@@ -48,15 +47,6 @@ function initialize(browsingContext, docShell, actor) {
       }
     },
 
-    onlineOverride: (onlineOverride) => {
-      if (!onlineOverride) {
-        docShell.onlineOverride = Ci.nsIDocShell.ONLINE_OVERRIDE_NONE;
-        return;
-      }
-      docShell.onlineOverride = onlineOverride === 'online' ?
-          Ci.nsIDocShell.ONLINE_OVERRIDE_ONLINE : Ci.nsIDocShell.ONLINE_OVERRIDE_OFFLINE;
-    },
-
     bypassCSP: (bypassCSP) => {
       docShell.bypassCSPEnabled = bypassCSP;
     },
@@ -93,7 +83,8 @@ function initialize(browsingContext, docShell, actor) {
   for (const { worldName, name, script } of [...contextCrossProcessCookie.bindings, ...pageCrossProcessCookie.bindings])
     data.frameTree.addBinding(worldName, name, script);
   data.frameTree.setInitScripts([...contextCrossProcessCookie.initScripts, ...pageCrossProcessCookie.initScripts]);
-  data.channel = SimpleChannel.createForActor(actor);
+  data.channel = new SimpleChannel('', 'process-' + Services.appinfo.processID);
+  data.channel.bindToActor(actor);
   data.pageAgent = new PageAgent(data.channel, data.frameTree);
   docShell.fileInputInterceptionEnabled = !!pageCrossProcessCookie.interceptFileChooserDialog;
 

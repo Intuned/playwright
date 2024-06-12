@@ -3,7 +3,28 @@ id: test-typescript
 title: "TypeScript"
 ---
 
-Playwright supports TypeScript out of the box. You just write tests in TypeScript, and Playwright will read them, transform to JavaScript and run.
+## Introduction
+
+Playwright supports TypeScript out of the box. You just write tests in TypeScript, and Playwright will read them, transform to JavaScript and run. Note that Playwright does not check the types and will run tests even if there are non-critical TypeScript compilation errors.
+
+We recommend you run TypeScript compiler alongside Playwright. For example on GitHub actions:
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    ...
+    - name: Run type checks
+      run: npx tsc -p tsconfig.json --noEmit
+    - name: Run Playwright tests
+      run: npx playwright test
+```
+
+For local development, you can run `tsc` in [watch](https://www.typescriptlang.org/docs/handbook/configuring-watch.html) mode like this:
+```sh
+npx tsc -p tsconfig.json --noEmit -w
+```
 
 ## tsconfig.json
 
@@ -88,15 +109,15 @@ The `pretest` script runs typescript on the tests. `test` will run the tests tha
 
 Then `npm run test` will build the tests and run them.
 
-## Transpilation issues
+## Using `import` inside `evaluate()`
 
 Using dynamic imports inside a function passed to various `evaluate()` methods is not supported. This is because Playwright uses `Function.prototype.toString()` to serialize functions, and transpiler will sometimes replace dynamic imports with `require()` calls, which are not valid inside the web page.
 
 To work around this issue, use a string template instead of a function:
 
 ```js
-await page.evaluate(`async () => {
+await page.evaluate(`(async () => {
   const { value } = await import('some-module');
   console.log(value);
-}`);
+})()`);
 ```

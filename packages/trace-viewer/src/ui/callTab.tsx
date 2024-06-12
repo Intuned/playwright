@@ -22,16 +22,14 @@ import './callTab.css';
 import { CopyToClipboard } from './copyToClipboard';
 import { asLocator } from '@isomorphic/locatorGenerators';
 import type { Language } from '@isomorphic/locatorGenerators';
-import { ErrorMessage } from '@web/components/errorMessage';
+import { PlaceholderPanel } from './placeholderPanel';
 
 export const CallTab: React.FunctionComponent<{
   action: ActionTraceEvent | undefined,
   sdkLanguage: Language | undefined,
 }> = ({ action, sdkLanguage }) => {
   if (!action)
-    return null;
-  const logs = action.log;
-  const error = action.error?.message;
+    return <PlaceholderPanel text='No action selected' />;
   const params = { ...action.params };
   // Strip down the waitForEventInfo data, we never need it.
   delete params.info;
@@ -40,8 +38,6 @@ export const CallTab: React.FunctionComponent<{
   const duration = action.endTime ? msToString(action.endTime - action.startTime) : 'Timed Out';
 
   return <div className='call-tab'>
-    {!!error && <ErrorMessage error={error} />}
-    {!!error && <div className='call-section'>Call</div>}
     <div className='call-line'>{action.apiName}</div>
     {<>
       <div className='call-section'>Time</div>
@@ -57,14 +53,6 @@ export const CallTab: React.FunctionComponent<{
       !!action.result && Object.keys(action.result).map((name, index) =>
         renderProperty(propertyToString(action, name, action.result[name], sdkLanguage), 'result-' + index)
       )
-    }
-    <div className='call-section'>Log</div>
-    {
-      logs.map((logLine, index) => {
-        return <div key={index} className='call-line'>
-          {logLine}
-        </div>;
-      })
     }
   </div>;
 };
@@ -98,7 +86,7 @@ function propertyToString(event: ActionTraceEvent, name: string, value: any, sdk
   if ((name === 'value' && isEval) || (name === 'received' && event.method === 'expect'))
     value = parseSerializedValue(value, new Array(10).fill({ handle: '<handle>' }));
   if (name === 'selector')
-    return { text: asLocator(sdkLanguage || 'javascript', event.params.selector, false /* isFrameLocator */, true /* playSafe */), type: 'locator', name: 'locator' };
+    return { text: asLocator(sdkLanguage || 'javascript', event.params.selector), type: 'locator', name: 'locator' };
   const type = typeof value;
   if (type !== 'object' || value === null)
     return { text: String(value), type, name };

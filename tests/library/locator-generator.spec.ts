@@ -68,6 +68,13 @@ it('reverse engineer locators', async ({ page }) => {
     csharp: 'GetByTestId(new Regex("He\\"llo"))'
   });
 
+  expect.soft(generate(page.getByTestId(/He\\"llo/))).toEqual({
+    javascript: 'getByTestId(/He\\\\"llo/)',
+    python: 'get_by_test_id(re.compile(r"He\\\\\\"llo"))',
+    java: 'getByTestId(Pattern.compile("He\\\\\\\\\\"llo"))',
+    csharp: 'GetByTestId(new Regex("He\\\\\\\\\\"llo"))'
+  });
+
   expect.soft(generate(page.getByText('Hello', { exact: true }))).toEqual({
     csharp: 'GetByText("Hello", new() { Exact = true })',
     java: 'getByText("Hello", new Page.GetByTextOptions().setExact(true))',
@@ -349,6 +356,16 @@ it('reverse engineer hasNot', async ({ page }) => {
   });
 });
 
+it('reverse engineer has + hasText', async ({ page }) => {
+  const locator = page.locator('section').filter({ hasText: 'foo', has: page.locator('div') }).locator('a');
+  expect.soft(generate(locator)).toEqual({
+    csharp: `Locator("section").Filter(new() { HasText = "foo" }).Filter(new() { Has = Locator("div") }).Locator("a")`,
+    java: `locator("section").filter(new Locator.FilterOptions().setHasText("foo")).filter(new Locator.FilterOptions().setHas(locator("div"))).locator("a")`,
+    javascript: `locator('section').filter({ hasText: 'foo' }).filter({ has: locator('div') }).locator('a')`,
+    python: `locator("section").filter(has_text="foo").filter(has=locator("div")).locator("a")`,
+  });
+});
+
 it('reverse engineer frameLocator', async ({ page }) => {
   const locator = page
       .frameLocator('iframe')
@@ -487,6 +504,61 @@ it('asLocator internal:or', async () => {
   expect.soft(asLocator('csharp', 'div >> internal:or="span >> article"', false)).toBe(`Locator("div").Or(Locator("span").Locator("article"))`);
 });
 
+it('asLocator internal:chain', async () => {
+  expect.soft(asLocator('javascript', 'div >> internal:chain="span >> article"', false)).toBe(`locator('div').locator(locator('span').locator('article'))`);
+  expect.soft(asLocator('python', 'div >> internal:chain="span >> article"', false)).toBe(`locator("div").locator(locator("span").locator("article"))`);
+  expect.soft(asLocator('java', 'div >> internal:chain="span >> article"', false)).toBe(`locator("div").locator(locator("span").locator("article"))`);
+  expect.soft(asLocator('csharp', 'div >> internal:chain="span >> article"', false)).toBe(`Locator("div").Locator(Locator("span").Locator("article"))`);
+});
+
+it('asLocator xpath', async () => {
+  const selector = `//*[contains(normalizer-text(), 'foo']`;
+  expect.soft(asLocator('javascript', selector, false)).toBe(`locator('//*[contains(normalizer-text(), \\'foo\\']')`);
+  expect.soft(asLocator('python', selector, false)).toBe(`locator(\"//*[contains(normalizer-text(), 'foo']\")`);
+  expect.soft(asLocator('java', selector, false)).toBe(`locator(\"//*[contains(normalizer-text(), 'foo']\")`);
+  expect.soft(asLocator('csharp', selector, false)).toBe(`Locator(\"//*[contains(normalizer-text(), 'foo']\")`);
+  expect.soft(parseLocator('javascript', `locator('//*[contains(normalizer-text(), \\'foo\\']')`, 'data-testid')).toBe("//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('javascript', `locator("//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('javascript', `locator('xpath=//*[contains(normalizer-text(), \\'foo\\']')`, 'data-testid')).toBe("xpath=//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('javascript', `locator("xpath=//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("xpath=//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('python', `locator("//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('python', `locator("xpath=//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("xpath=//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('java', `locator("//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('java', `locator("xpath=//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("xpath=//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('csharp', `Locator("//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("//*[contains(normalizer-text(), 'foo']");
+  expect.soft(parseLocator('csharp', `Locator("xpath=//*[contains(normalizer-text(), 'foo']")`, 'data-testid')).toBe("xpath=//*[contains(normalizer-text(), 'foo']");
+});
+
+it('parseLocator quotes', async () => {
+  expect.soft(parseLocator('javascript', `locator('text="bar"')`, '')).toBe(`text="bar"`);
+  expect.soft(parseLocator('javascript', `locator("text='bar'")`, '')).toBe(`text='bar'`);
+  expect.soft(parseLocator('javascript', "locator(`text='bar'`)", '')).toBe(`text='bar'`);
+  expect.soft(parseLocator('python', `locator("text='bar'")`, '')).toBe(`text='bar'`);
+  expect.soft(parseLocator('python', `locator('text="bar"')`, '')).toBe(``);
+  expect.soft(parseLocator('java', `locator("text='bar'")`, '')).toBe(`text='bar'`);
+  expect.soft(parseLocator('java', `locator('text="bar"')`, '')).toBe(``);
+  expect.soft(parseLocator('csharp', `Locator("text='bar'")`, '')).toBe(`text='bar'`);
+  expect.soft(parseLocator('csharp', `Locator('text="bar"')`, '')).toBe(``);
+
+  const mixedQuotes = `
+    locator("[id*=freetext-field]")
+        .locator('input:below(:text("Assigned Number:"))')
+        .locator("visible=true")
+  `;
+  expect.soft(parseLocator('javascript', mixedQuotes, '')).toBe(`[id*=freetext-field] >> input:below(:text("Assigned Number:")) >> visible=true`);
+});
+
+it('parseLocator css', async () => {
+  expect.soft(parseLocator('javascript', `locator('.foo')`, '')).toBe(`.foo`);
+  expect.soft(parseLocator('javascript', `locator('css=.foo')`, '')).toBe(`css=.foo`);
+  expect.soft(parseLocator('python', `locator(".foo")`, '')).toBe(`.foo`);
+  expect.soft(parseLocator('python', `locator("css=.foo")`, '')).toBe(`css=.foo`);
+  expect.soft(parseLocator('java', `locator(".foo")`, '')).toBe(`.foo`);
+  expect.soft(parseLocator('java', `locator("css=.foo")`, '')).toBe(`css=.foo`);
+  expect.soft(parseLocator('csharp', `Locator(".foo")`, '')).toBe(`.foo`);
+  expect.soft(parseLocator('csharp', `Locator("css=.foo")`, '')).toBe(`css=.foo`);
+});
+
 it('parse locators strictly', () => {
   const selector = 'div >> internal:has-text=\"Goodbye world\"i >> span';
 
@@ -498,7 +570,7 @@ it('parse locators strictly', () => {
 
   // Quotes
   expect.soft(parseLocator('javascript', `locator("div").filter({ hasText: "Goodbye world" }).locator("span")`)).toBe(selector);
-  expect.soft(parseLocator('python', `locator('div').filter(has_text='Goodbye world').locator('span')`)).toBe(selector);
+  expect.soft(parseLocator('python', `locator('div').filter(has_text='Goodbye world').locator('span')`)).not.toBe(selector);
 
   // Whitespace
   expect.soft(parseLocator('csharp', `Locator("div")  .  Filter (new ( ) {  HasText =    "Goodbye world" }).Locator(  "span"   )`)).toBe(selector);

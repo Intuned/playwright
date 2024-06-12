@@ -280,6 +280,33 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(result.exitCode).toBe(0);
     });
 
+    test('should includeProjectInTestName', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          module.exports = {
+            projects: [ { name: 'project1' }, { name: 'project2' } ],
+            reporter: [['junit', { includeProjectInTestName: true }]]
+          };
+        `,
+        'a.test.js': `
+          import { test, expect } from '@playwright/test';
+          test('one', async ({}) => {
+            expect(1).toBe(1);
+          });
+        `,
+      }, { reporter: '' });
+      expect(result.exitCode).toBe(0);
+      const xml = parseXML(result.output);
+      expect(xml['testsuites']['testsuite'][0]['$']['name']).toBe('a.test.js');
+      expect(xml['testsuites']['testsuite'][0]['$']['hostname']).toBe('project1');
+      expect(xml['testsuites']['testsuite'][0]['$']['tests']).toBe('1');
+      expect(xml['testsuites']['testsuite'][0]['testcase'][0]['$']['name']).toBe('[project1] one');
+      expect(xml['testsuites']['testsuite'][1]['$']['name']).toBe('a.test.js');
+      expect(xml['testsuites']['testsuite'][1]['$']['hostname']).toBe('project2');
+      expect(xml['testsuites']['testsuite'][1]['$']['tests']).toBe('1');
+      expect(xml['testsuites']['testsuite'][1]['testcase'][0]['$']['name']).toBe('[project2] one');
+    });
+
     test('should render existing attachments, but not missing ones', async ({ runInlineTest }) => {
       test.skip(useIntermediateMergeReport, 'Blob report hashes attachment paths');
       const result = await runInlineTest({
@@ -303,6 +330,38 @@ for (const useIntermediateMergeReport of [false, true] as const) {
         `log here`,
         `\n[[ATTACHMENT|test-results${path.sep}a-one${path.sep}file.txt]]`,
         `\n[[ATTACHMENT|test-results${path.sep}a-one${path.sep}test-finished-1.png]]`,
+      ].join('\n'));
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('should render attachment paths relative to report file when report file name is specified', async ({ runInlineTest }, testInfo) => {
+      test.skip(useIntermediateMergeReport, 'Blob report hashes attachment paths');
+      const result = await runInlineTest({
+        'project/playwright.config.ts': `
+            module.exports = { reporter: [['junit', { outputFile: '../my-report/junit/a.xml' }]] };
+        `,
+        'project/a.test.js': `
+          import { test, expect } from '@playwright/test';
+          test.use({ screenshot: 'on' });
+          test('one', async ({ page }, testInfo) => {
+            await page.setContent('hello');
+            const file = testInfo.outputPath('file.txt');
+            require('fs').writeFileSync(file, 'my file', 'utf8');
+            testInfo.attachments.push({ name: 'my-file', path: file, contentType: 'text/plain' });
+            console.log('log here');
+          });
+        `,
+      }, { reporter: '', config: './project/playwright.config.ts' });
+
+      expect(result.exitCode).toBe(0);
+      expect(fs.existsSync(testInfo.outputPath(path.join('my-report', 'junit', 'a.xml')))).toBeTruthy();
+      const xml = parseXML(fs.readFileSync(testInfo.outputPath(path.join('my-report', 'junit', 'a.xml'))).toString());
+      const testcase = xml['testsuites']['testsuite'][0]['testcase'][0];
+      expect(testcase['system-out'].length).toBe(1);
+      expect(testcase['system-out'][0].trim()).toBe([
+        `log here`,
+        `\n[[ATTACHMENT|..${path.sep}..${path.sep}test-results${path.sep}a-one${path.sep}file.txt]]`,
+        `\n[[ATTACHMENT|..${path.sep}..${path.sep}test-results${path.sep}a-one${path.sep}test-finished-1.png]]`,
       ].join('\n'));
       expect(result.exitCode).toBe(0);
     });
@@ -438,13 +497,67 @@ for (const useIntermediateMergeReport of [false, true] as const) {
             test('pass', ({}, testInfo) => {
             });
           `
-        }, { 'reporter': 'junit' }, { 'PLAYWRIGHT_JUNIT_OUTPUT_NAME': '../my-report.xml' }, {
+        }, { 'reporter': 'junit,line' }, { 'PLAYWRIGHT_JUNIT_OUTPUT_NAME': '../my-report.xml' }, {
           cwd: 'foo/bar/baz/tests',
         });
         expect(result.exitCode).toBe(0);
         expect(result.passed).toBe(1);
         expect(fs.existsSync(testInfo.outputPath('foo', 'bar', 'baz', 'my-report.xml'))).toBe(true);
       });
+
+      test('support PLAYWRIGHT_JUNIT_OUTPUT_FILE', async ({ runInlineTest }, testInfo) => {
+        const result = await runInlineTest({
+          'foo/package.json': `{ "name": "foo" }`,
+          // unused config along "search path"
+          'foo/bar/playwright.config.js': `
+            module.exports = { projects: [ {} ] };
+          `,
+          'foo/bar/baz/tests/a.spec.js': `
+            import { test, expect } from '@playwright/test';
+            const fs = require('fs');
+            test('pass', ({}, testInfo) => {
+            });
+          `
+        }, { 'reporter': 'junit,line' }, { 'PLAYWRIGHT_JUNIT_OUTPUT_FILE': '../my-report.xml' }, {
+          cwd: 'foo/bar/baz/tests',
+        });
+        expect(result.exitCode).toBe(0);
+        expect(result.passed).toBe(1);
+        expect(fs.existsSync(testInfo.outputPath('foo', 'bar', 'baz', 'my-report.xml'))).toBe(true);
+      });
+
+      test('support PLAYWRIGHT_JUNIT_OUTPUT_DIR and PLAYWRIGHT_JUNIT_OUTPUT_NAME', async ({ runInlineTest }, testInfo) => {
+        const result = await runInlineTest({
+          'playwright.config.js': `
+            module.exports = { projects: [ {} ] };
+          `,
+          'tests/a.spec.js': `
+            import { test, expect } from '@playwright/test';
+            const fs = require('fs');
+            test('pass', ({}, testInfo) => {
+            });
+          `
+        }, { 'reporter': 'junit,line' }, { 'PLAYWRIGHT_JUNIT_OUTPUT_DIR': 'foo/bar', 'PLAYWRIGHT_JUNIT_OUTPUT_NAME': 'baz/my-report.xml' });
+        expect(result.exitCode).toBe(0);
+        expect(result.passed).toBe(1);
+        expect(fs.existsSync(testInfo.outputPath('foo', 'bar', 'baz', 'my-report.xml'))).toBe(true);
+      });
+    });
+
+    test('testsuites time is test run wall time', async ({ runInlineTest }) => {
+      test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/30518' });
+      const result = await runInlineTest({
+        'a.test.js': `
+          import { test, expect } from '@playwright/test';
+          test('one', async ({}) => {
+            await new Promise(f => setTimeout(f, 1000));
+          });
+        `
+      }, { reporter: 'junit' });
+      const xml = parseXML(result.output);
+      const time = +xml['testsuites']['$']['time'];
+      expect(time).toBe(result.report.stats.duration / 1000);
+      expect(time).toBeGreaterThan(1);
     });
   });
 }

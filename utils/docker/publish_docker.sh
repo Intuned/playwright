@@ -26,14 +26,8 @@ else
   exit 1
 fi
 
-if [[ -z "${GITHUB_SHA}" ]]; then
-  echo "ERROR: GITHUB_SHA env variable must be specified"
-  exit 1
-fi
-
 FOCAL_TAGS=(
   "next"
-  "sha-${GITHUB_SHA}"
   "next-focal"
   "v${PW_VERSION}-focal"
 )
@@ -49,8 +43,8 @@ JAMMY_TAGS=(
 )
 
 if [[ "$RELEASE_CHANNEL" == "stable" ]]; then
-  FOCAL_TAGS+=("latest")
-  FOCAL_TAGS+=("jammy")
+  JAMMY_TAGS+=("latest")
+  JAMMY_TAGS+=("jammy")
 fi
 
 tag_and_push() {
@@ -59,6 +53,27 @@ tag_and_push() {
   echo "-- tagging: $target"
   docker tag $source $target
   docker push $target
+  attach_eol_manifest $target
+}
+
+attach_eol_manifest() {
+  local image="$1"
+  local today=$(date -u +'%Y-%m-%d')
+  install_oras_if_needed
+  # oras is re-using Docker credentials, so we don't need to login.
+  # Following the advice in https://portal.microsofticm.com/imp/v3/incidents/incident/476783820/summary
+  ./oras/oras attach --artifact-type application/vnd.microsoft.artifact.lifecycle --annotation "vnd.microsoft.artifact.lifecycle.end-of-life.date=$today" $image
+}
+
+install_oras_if_needed() {
+  if [[ -x oras/oras ]]; then
+    return
+  fi
+  local version="1.1.0"
+  curl -sLO "https://github.com/oras-project/oras/releases/download/v${version}/oras_${version}_linux_amd64.tar.gz"
+  mkdir -p oras
+  tar -zxf oras_${version}_linux_amd64.tar.gz -C oras
+  rm oras_${version}_linux_amd64.tar.gz
 }
 
 publish_docker_images_with_arch_suffix() {

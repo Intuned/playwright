@@ -24,9 +24,9 @@ import type { Env } from '../../utils/processLauncher';
 import type { ConnectionTransport } from '../transport';
 import type { BrowserOptions } from '../browser';
 import type * as types from '../types';
-import { rewriteErrorMessage } from '../../utils/stackTrace';
 import { wrapInASCIIBox } from '../../utils';
 import type { SdkObject } from '../instrumentation';
+import type { ProtocolError } from '../protocolError';
 
 export class Firefox extends BrowserType {
   constructor(parent: SdkObject) {
@@ -37,9 +37,14 @@ export class Firefox extends BrowserType {
     return FFBrowser.connect(this.attribution.playwright, transport, options);
   }
 
-  _rewriteStartupError(error: Error): Error {
-    if (error.message.includes('no DISPLAY environment variable specified'))
-      return rewriteErrorMessage(error, '\n' + wrapInASCIIBox(kNoXServerRunningError, 1));
+  _doRewriteStartupLog(error: ProtocolError): ProtocolError {
+    if (!error.logs)
+      return error;
+    // https://github.com/microsoft/playwright/issues/6500
+    if (error.logs.includes(`as root in a regular user's session is not supported.`))
+      error.logs = '\n' + wrapInASCIIBox(`Firefox is unable to launch if the $HOME folder isn't owned by the current user.\nWorkaround: Set the HOME=/root environment variable${process.env.GITHUB_ACTION ? ' in your GitHub Actions workflow file' : ''} when running Playwright.`, 1);
+    if (error.logs.includes('no DISPLAY environment variable specified'))
+      error.logs = '\n' + wrapInASCIIBox(kNoXServerRunningError, 1);
     return error;
   }
 
@@ -64,7 +69,7 @@ export class Firefox extends BrowserType {
     const { args = [], headless } = options;
     const userDataDirArg = args.find(arg => arg.startsWith('-profile') || arg.startsWith('--profile'));
     if (userDataDirArg)
-      throw new Error('Pass userDataDir parameter to `browserType.launchPersistentContext(userDataDir, ...)` instead of specifying --profile argument');
+      throw this._createUserDataDirArgMisuseError('--profile');
     if (args.find(arg => arg.startsWith('-juggler')))
       throw new Error('Use the port parameter instead of -juggler argument');
     const firefoxArguments = ['-no-remote'];

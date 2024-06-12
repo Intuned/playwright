@@ -3,6 +3,8 @@ id: dialogs
 title: "Dialogs"
 ---
 
+## Introduction
+
 Playwright can interact with the web page dialogs such as [`alert`](https://developer.mozilla.org/en-US/docs/Web/API/Window/alert), [`confirm`](https://developer.mozilla.org/en-US/docs/Web/API/Window/confirm), [`prompt`](https://developer.mozilla.org/en-US/docs/Web/API/Window/prompt) as well as [`beforeunload`](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event) confirmation.
 
 ## alert(), confirm(), prompt() dialogs
@@ -30,8 +32,11 @@ page.get_by_role("button").click()
 ```
 
 ```csharp
-page.Dialog += (_, dialog) => dialog.AcceptAsync();
-await page.GetByRole(AriaRole.Button).ClickAsync();
+Page.Dialog += async (_, dialog) =>
+{
+    await dialog.AcceptAsync();
+};
+await Page.GetByRole(AriaRole.Button).ClickAsync();
 ```
 
 :::note
@@ -114,10 +119,10 @@ page.close(run_before_unload=True)
 ```
 
 ```csharp
-page.Dialog += (_, dialog) =>
+Page.Dialog += async (_, dialog) =>
 {
     Assert.AreEqual("beforeunload", dialog.Type);
-    dialog.DismissAsync();
+    await dialog.DismissAsync();
 };
-await page.CloseAsync(runBeforeUnload: true);
+await Page.CloseAsync(new() { RunBeforeUnload = true });
 ```

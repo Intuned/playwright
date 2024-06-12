@@ -27,7 +27,7 @@ export class Video implements api.Video {
 
   constructor(page: Page, connection: Connection) {
     this._isRemote = connection.isRemote();
-    this._artifact = page._closedOrCrashedRace.safeRace(this._artifactReadyPromise);
+    this._artifact = page._closedOrCrashedScope.safeRace(this._artifactReadyPromise);
   }
 
   _artifactReady(artifact: Artifact) {
@@ -47,7 +47,7 @@ export class Video implements api.Video {
     const artifact = await this._artifact;
     if (!artifact)
       throw new Error('Page did not produce any video frames');
-    return artifact.saveAs(path);
+    return await artifact.saveAs(path);
   }
 
   async delete(): Promise<void> {

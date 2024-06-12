@@ -56,9 +56,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     firefox = playwright.firefox
     browser = await firefox.launch()
     page = await browser.new_page()
@@ -78,9 +78,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     firefox = playwright.firefox
     browser = firefox.launch()
     page = browser.new_page()
@@ -382,13 +382,16 @@ default.
 
 Since [`param: eventInit`] is event-specific, please refer to the events documentation for the lists of initial
 properties:
+* [DeviceMotionEvent](https://developer.mozilla.org/en-US/docs/Web/API/DeviceMotionEvent/DeviceMotionEvent)
+* [DeviceOrientationEvent](https://developer.mozilla.org/en-US/docs/Web/API/DeviceOrientationEvent/DeviceOrientationEvent)
 * [DragEvent](https://developer.mozilla.org/en-US/docs/Web/API/DragEvent/DragEvent)
+* [Event](https://developer.mozilla.org/en-US/docs/Web/API/Event/Event)
 * [FocusEvent](https://developer.mozilla.org/en-US/docs/Web/API/FocusEvent/FocusEvent)
 * [KeyboardEvent](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/KeyboardEvent)
 * [MouseEvent](https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent/MouseEvent)
 * [PointerEvent](https://developer.mozilla.org/en-US/docs/Web/API/PointerEvent/PointerEvent)
 * [TouchEvent](https://developer.mozilla.org/en-US/docs/Web/API/TouchEvent/TouchEvent)
-* [Event](https://developer.mozilla.org/en-US/docs/Web/API/Event/Event)
+* [WheelEvent](https://developer.mozilla.org/en-US/docs/Web/API/WheelEvent/WheelEvent)
 
 You can also specify `JSHandle` as the property value if you want live objects to be passed into the event:
 
@@ -677,7 +680,9 @@ Console.WriteLine(await frame.EvaluateAsync<int>("1 + 2")); // prints "3"
 
 ```js
 const bodyHandle = await frame.evaluate('document.body');
-const html = await frame.evaluate(([body, suffix]) => body.innerHTML + suffix, [bodyHandle, 'hello']);
+const html = await frame.evaluate(([body, suffix]) =>
+  body.innerHTML + suffix, [bodyHandle, 'hello'],
+);
 await bodyHandle.dispose();
 ```
 
@@ -782,7 +787,9 @@ var docHandle = await frame.EvaluateHandleAsync("document"); // Handle for the `
 
 ```js
 const aHandle = await frame.evaluateHandle(() => document.body);
-const resultHandle = await frame.evaluateHandle(([body, suffix]) => body.innerHTML + suffix, [aHandle, 'hello']);
+const resultHandle = await frame.evaluateHandle(([body, suffix]) =>
+  body.innerHTML + suffix, [aHandle, 'hello'],
+);
 console.log(await resultHandle.jsonValue());
 await resultHandle.dispose();
 ```
@@ -835,7 +842,7 @@ This method waits for an element matching [`param: selector`], waits for [action
 
 If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be filled instead.
 
-To send fine-grained keyboard events, use [`method: Frame.type`].
+To send fine-grained keyboard events, use [`method: Locator.pressSequentially`].
 
 ### param: Frame.fill.selector = %%-input-selector-%%
 * since: v1.8
@@ -1023,7 +1030,8 @@ Attribute name to get the value for.
 
 %%-template-locator-get-by-role-%%
 
-### param: Frame.getByRole.role = %%-locator-get-by-role-role-%%
+### param: Frame.getByRole.role = %%-get-by-role-to-have-role-role-%%
+* since: v1.27
 
 ### option: Frame.getByRole.-inline- = %%-locator-get-by-role-option-list-v1.27-%%
 * since: v1.27
@@ -1386,14 +1394,15 @@ generate the text for. A superset of the [`param: key`] values can be found
 `F1` - `F12`, `Digit0`- `Digit9`, `KeyA`- `KeyZ`, `Backquote`, `Minus`, `Equal`, `Backslash`, `Backspace`, `Tab`,
 `Delete`, `Escape`, `ArrowDown`, `End`, `Enter`, `Home`, `Insert`, `PageDown`, `PageUp`, `ArrowRight`, `ArrowUp`, etc.
 
-Following modification shortcuts are also supported: `Shift`, `Control`, `Alt`, `Meta`, `ShiftLeft`.
+Following modification shortcuts are also supported: `Shift`, `Control`, `Alt`, `Meta`, `ShiftLeft`, `ControlOrMeta`.
+`ControlOrMeta` resolves to `Control` on Windows and Linux and to `Meta` on macOS.
 
 Holding down `Shift` will type the text that corresponds to the [`param: key`] in the upper case.
 
 If [`param: key`] is a single character, it is case-sensitive, so the values `a` and `A` will generate different
 respective texts.
 
-Shortcuts such as `key: "Control+o"` or `key: "Control+Shift+T"` are supported as well. When specified with the
+Shortcuts such as `key: "Control+o"`, `key: "Control++` or `key: "Control+Shift+T"` are supported as well. When specified with the
 modifier, modifier is pressed and being held while the subsequent key is being pressed.
 
 ### param: Frame.press.selector = %%-input-selector-%%
@@ -1482,7 +1491,7 @@ Triggers a `change` and `input` event once all the provided options have been se
 **Usage**
 
 ```js
-// single selection matching the value
+// Single selection matching the value or label
 frame.selectOption('select#colors', 'blue');
 
 // single selection matching both the value and the label
@@ -1493,7 +1502,7 @@ frame.selectOption('select#colors', 'red', 'green', 'blue');
 ```
 
 ```java
-// single selection matching the value
+// Single selection matching the value or label
 frame.selectOption("select#colors", "blue");
 // single selection matching both the value and the label
 frame.selectOption("select#colors", new SelectOption().setLabel("Blue"));
@@ -1502,7 +1511,7 @@ frame.selectOption("select#colors", new String[] {"red", "green", "blue"});
 ```
 
 ```python async
-# single selection matching the value
+# Single selection matching the value or label
 await frame.select_option("select#colors", "blue")
 # single selection matching the label
 await frame.select_option("select#colors", label="blue")
@@ -1511,7 +1520,7 @@ await frame.select_option("select#colors", value=["red", "green", "blue"])
 ```
 
 ```python sync
-# single selection matching the value
+# Single selection matching the value or label
 frame.select_option("select#colors", "blue")
 # single selection matching both the label
 frame.select_option("select#colors", label="blue")
@@ -1520,7 +1529,7 @@ frame.select_option("select#colors", value=["red", "green", "blue"])
 ```
 
 ```csharp
-// single selection matching the value
+// Single selection matching the value or label
 await frame.SelectOptionAsync("select#colors", new[] { "blue" });
 // single selection matching both the value and the label
 await frame.SelectOptionAsync("select#colors", new[] { new SelectOptionValue() { Label = "blue" } });
@@ -1609,6 +1618,8 @@ When all steps combined have not finished during the specified [`option: timeout
 
 ## async method: Frame.setContent
 * since: v1.8
+
+This method internally calls [document.write()](https://developer.mozilla.org/en-US/docs/Web/API/Document/write), inheriting all its specific characteristics and behaviors.
 
 ### param: Frame.setContent.html
 * since: v1.8
@@ -1727,7 +1738,7 @@ Returns the page title.
 
 ## async method: Frame.type
 * since: v1.8
-* discouraged: Use locator-based [`method: Locator.type`] instead. Read more about [locators](../locators.md).
+* deprecated: In most cases, you should use [`method: Locator.fill`] instead. You only need to press keys one by one if there is special keyboard handling on the page - in this case use [`method: Locator.pressSequentially`].
 
 Sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text. `frame.type` can be used to
 send fine-grained keyboard events. To fill values in form fields, use [`method: Frame.fill`].
@@ -1735,33 +1746,6 @@ send fine-grained keyboard events. To fill values in form fields, use [`method: 
 To press a special key, like `Control` or `ArrowDown`, use [`method: Keyboard.press`].
 
 **Usage**
-
-```js
-await frame.type('#mytextarea', 'Hello'); // Types instantly
-await frame.type('#mytextarea', 'World', { delay: 100 }); // Types slower, like a user
-```
-
-```java
-// Types instantly
-frame.type("#mytextarea", "Hello");
-// Types slower, like a user
-frame.type("#mytextarea", "World", new Frame.TypeOptions().setDelay(100));
-```
-
-```python async
-await frame.type("#mytextarea", "hello") # types instantly
-await frame.type("#mytextarea", "world", delay=100) # types slower, like a user
-```
-
-```python sync
-frame.type("#mytextarea", "hello") # types instantly
-frame.type("#mytextarea", "world", delay=100) # types slower, like a user
-```
-
-```csharp
-await frame.TypeAsync("#mytextarea", "hello"); // types instantly
-await frame.TypeAsync("#mytextarea", "world", new() { Delay = 100 }); // types slower, like a user
-```
 
 ### param: Frame.type.selector = %%-input-selector-%%
 * since: v1.8
@@ -1881,9 +1865,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = await webkit.launch()
     page = await browser.new_page()
@@ -1898,9 +1882,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = webkit.launch()
     page = browser.new_page()
@@ -1987,6 +1971,10 @@ Waits for the required load state to be reached.
 
 This returns when the frame reaches a required load state, `load` by default. The navigation must have been committed
 when this method is called. If current document has already reached the required state, resolves immediately.
+
+:::note
+Most of the time, this method is not needed because Playwright [auto-waits before every action](../actionability.md).
+:::
 
 **Usage**
 
@@ -2167,9 +2155,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = await chromium.launch()
     page = await browser.new_page()
@@ -2186,9 +2174,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = chromium.launch()
     page = browser.new_page()

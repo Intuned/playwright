@@ -17,6 +17,15 @@
 
 import { test as it, expect } from './pageTest';
 import { attachFrame } from '../config/utils';
+import fs from 'fs';
+
+function adjustServerHeaders(headers: Object, browserName: string, channel: string) {
+  if (browserName === 'firefox' && channel === 'firefox-beta') {
+    // This is a new experimental feature, only enabled in Firefox Beta for now.
+    delete headers['priority'];
+  }
+  return headers;
+}
 
 it('should work for main frame navigation request', async ({ page, server }) => {
   const requests = [];
@@ -81,7 +90,7 @@ it('should return headers', async ({ page, server, browserName }) => {
     expect(response.request().headers()['user-agent']).toContain('WebKit');
 });
 
-it('should get the same headers as the server', async ({ page, server, browserName, platform, isElectron, browserMajorVersion }) => {
+it('should get the same headers as the server', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
   it.fail(browserName === 'webkit' && platform === 'win32', 'Curl does not show accept-encoding and accept-language');
   let serverRequest;
@@ -91,10 +100,10 @@ it('should get the same headers as the server', async ({ page, server, browserNa
   });
   const response = await page.goto(server.PREFIX + '/empty.html');
   const headers = await response.request().allHeaders();
-  expect(headers).toEqual(serverRequest.headers);
+  expect(headers).toEqual(adjustServerHeaders(serverRequest.headers, browserName, channel));
 });
 
-it('should not return allHeaders() until they are available', async ({ page, server, browserName, platform, isElectron, browserMajorVersion }) => {
+it('should not return allHeaders() until they are available', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
   it.fail(browserName === 'webkit' && platform === 'win32', 'Curl does not show accept-encoding and accept-language');
 
@@ -113,13 +122,13 @@ it('should not return allHeaders() until they are available', async ({ page, ser
 
   await page.goto(server.PREFIX + '/empty.html');
   const requestHeaders = await requestHeadersPromise;
-  expect(requestHeaders).toEqual(serverRequest.headers);
+  expect(requestHeaders).toEqual(adjustServerHeaders(serverRequest.headers, browserName, channel));
 
   const responseHeaders = await responseHeadersPromise;
   expect(responseHeaders['foo']).toBe('bar');
 });
 
-it('should get the same headers as the server CORS', async ({ page, server, browserName, platform, isElectron, browserMajorVersion }) => {
+it('should get the same headers as the server CORS', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
   it.fail(browserName === 'webkit' && platform === 'win32', 'Curl does not show accept-encoding and accept-language');
 
@@ -138,7 +147,7 @@ it('should get the same headers as the server CORS', async ({ page, server, brow
   expect(text).toBe('done');
   const response = await responsePromise;
   const headers = await response.request().allHeaders();
-  expect(headers).toEqual(serverRequest.headers);
+  expect(headers).toEqual(adjustServerHeaders(serverRequest.headers, browserName, channel));
 });
 
 it('should not get preflight CORS requests when intercepting', async ({ page, server, browserName, isAndroid }) => {
@@ -289,6 +298,20 @@ it('should parse the data if content-type is application/x-www-form-urlencoded',
   expect(request.postDataJSON()).toEqual({ 'foo': 'bar', 'baz': '123' });
 });
 
+it('should parse the data if content-type is application/x-www-form-urlencoded; charset=UTF-8', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29872' });
+  await page.goto(server.EMPTY_PAGE);
+  const requestPromise = page.waitForRequest('**/post');
+  await page.evaluate(() => fetch('./post', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    },
+    body: 'foo=bar&baz=123'
+  }));
+  expect((await requestPromise).postDataJSON()).toEqual({ 'foo': 'bar', 'baz': '123' });
+});
+
 it('should get |undefined| with postDataJSON() when there is no post data', async ({ page, server }) => {
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.request().postDataJSON()).toBe(null);
@@ -338,7 +361,7 @@ it('should return navigation bit when navigating to image', async ({ page, serve
   expect(requests[0].isNavigationRequest()).toBe(true);
 });
 
-it('should report raw headers', async ({ page, server, browserName, platform, isElectron, browserMajorVersion }) => {
+it('should report raw headers', async ({ page, server, browserName, platform, isElectron, browserMajorVersion, channel }) => {
   it.skip(isElectron && browserMajorVersion < 99, 'This needs Chromium >= 99');
 
   let expectedHeaders: { name: string, value: string }[];
@@ -360,6 +383,10 @@ it('should report raw headers', async ({ page, server, browserName, platform, is
           return e;
         return { name, value: values[0] };
       });
+    }
+    if (browserName === 'firefox' && channel === 'firefox-beta') {
+      // This is a new experimental feature, only enabled in Firefox Beta for now.
+      expectedHeaders = expectedHeaders.filter(({ name }) => name.toLowerCase() !== 'priority');
     }
     res.end();
   });
@@ -424,4 +451,99 @@ it('should report all cookies in one header', async ({ page, server, isElectron,
   const response = await page.goto(server.EMPTY_PAGE);
   const cookie = (await response.request().allHeaders())['cookie'];
   expect(cookie).toBe('myCookie=myValue; myOtherCookie=myOtherValue');
+});
+
+it('should not allow to access frame on popup main request', async ({ page, server }) => {
+  await page.setContent(`<a target=_blank href="${server.EMPTY_PAGE}">click me</a>`);
+  const requestPromise = page.context().waitForEvent('request');
+  const popupPromise = page.context().waitForEvent('page');
+  const clicked = page.getByText('click me').click();
+  const request = await requestPromise;
+
+  expect(request.isNavigationRequest()).toBe(true);
+
+  let error;
+  try {
+    request.frame();
+  } catch (e) {
+    error = e;
+  }
+  expect(error.message).toContain('Frame for this navigation request is not available');
+
+  const response = await request.response();
+  await response.finished();
+  await popupPromise;
+  await clicked;
+});
+
+it('page.reload return 304 status code', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28779' });
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29441' });
+  it.fixme(browserName === 'firefox', 'Does not send second request');
+  let requestNumber = 0;
+  server.setRoute('/test.html', (req, res) => {
+    ++requestNumber;
+    const headers = {
+      'cf-cache-status': 'DYNAMIC',
+      'Content-Type': 'text/html;charset=UTF-8',
+      'Last-Modified': 'Fri, 05 Jan 2024 01:56:20 GMT',
+      'Vary': 'Access-Control-Request-Headers',
+    };
+    if (requestNumber === 1)
+      res.writeHead(200, headers);
+    else
+      res.writeHead(304, 'Not Modified', headers);
+    res.write(`<div>Test</div>`);
+    res.end();
+  });
+  const response1 = await page.goto(server.PREFIX + '/test.html');
+  expect(response1.status()).toBe(200);
+  const response2 = await page.reload();
+  expect(requestNumber).toBe(2);
+  if (browserName === 'chromium') {
+    expect(response2.status()).toBe(200);
+    expect(response2.statusText()).toBe('OK');
+    expect(await response2.text()).toBe('<div>Test</div>');
+  } else {
+    expect(response2.status()).toBe(304);
+    expect(response2.statusText()).toBe('Not Modified');
+  }
+});
+
+it('should handle mixed-content blocked requests', async ({ page, asset, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29833' });
+  it.skip(browserName !== 'chromium', 'FF and WK actually succeed with the request, and block afterwards');
+
+  await page.route('**/mixedcontent.html', route => {
+    void route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `
+        <!doctype html>
+        <meta charset="utf-8">
+        <style>
+        @font-face {
+          font-family: 'pwtest-iconfont';
+          src: url('http://another.com/iconfont.woff2') format('woff2');
+        }
+        body {
+          font-family: 'pwtest-iconfont';
+        }
+        </style>
+        <span>+-</span>
+    `,
+    });
+  });
+  await page.route('**/iconfont.woff2', async route => {
+    const body = await fs.promises.readFile(asset('webfont/iconfont2.woff'));
+    await route.fulfill({ body });
+  });
+
+  const [request] = await Promise.all([
+    page.waitForEvent('requestfailed', r => r.url().includes('iconfont.woff2')),
+    page.goto('https://example.com/mixedcontent.html'),
+  ]);
+  const headers = await request.allHeaders();
+  expect(headers['origin']).toBeTruthy();
+  expect(request.failure().errorText).toBe('mixed-content');
 });

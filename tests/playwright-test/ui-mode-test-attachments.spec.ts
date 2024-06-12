@@ -18,12 +18,13 @@ import { test, expect, retries } from './ui-mode-fixtures';
 
 test.describe.configure({ mode: 'parallel', retries });
 
-test('should contain file attachment', async ({ runUITest }) => {
+test('should contain text attachment', async ({ runUITest }) => {
   const { page } = await runUITest({
     'a.test.ts': `
       import { test } from '@playwright/test';
       test('attach test', async () => {
         await test.info().attach('note', { path: __filename });
+        await test.info().attach('🎭', { body: 'hi tester!', contentType: 'text/plain' });
       });
     `,
   });
@@ -31,13 +32,38 @@ test('should contain file attachment', async ({ runUITest }) => {
   await page.getByTitle('Run all').click();
   await expect(page.getByTestId('status-line')).toHaveText('1/1 passed (100%)');
   await page.getByText('Attachments').click();
-  await page.getByText('attach "note"', { exact: true }).click();
-  const popupPromise = page.waitForEvent('popup');
-  await page.getByRole('link', { name: 'note' }).click();
-  const popup = await popupPromise;
-  await popup.waitForLoadState();
-  const content = await popup.content();
-  expect(content).toContain('attach test');
+  for (const { name, content } of [
+    { name: 'note', content: 'attach test' },
+    { name: '🎭', content: 'hi tester!' }
+  ]) {
+    await page.getByText(`attach "${name}"`, { exact: true }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('link', { name: name }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(name);
+    expect((await readAllFromStream(await download.createReadStream())).toString()).toContain(content);
+  }
+});
+
+test('should contain binary attachment', async ({ runUITest }) => {
+  const { page } = await runUITest({
+    'a.test.ts': `
+      import { test } from '@playwright/test';
+      test('attach test', async () => {
+        await test.info().attach('data', { body: Buffer.from([1, 2, 3]), contentType: 'application/octet-stream' });
+      });
+    `,
+  });
+  await page.getByText('attach test').click();
+  await page.getByTitle('Run all').click();
+  await expect(page.getByTestId('status-line')).toHaveText('1/1 passed (100%)');
+  await page.getByText('Attachments').click();
+  await page.getByText('attach "data"', { exact: true }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'data' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('data');
+  expect(await readAllFromStream(await download.createReadStream())).toEqual(Buffer.from([1, 2, 3]));
 });
 
 test('should contain string attachment', async ({ runUITest }) => {
@@ -54,10 +80,17 @@ test('should contain string attachment', async ({ runUITest }) => {
   await expect(page.getByTestId('status-line')).toHaveText('1/1 passed (100%)');
   await page.getByText('Attachments').click();
   await page.getByText('attach "note"', { exact: true }).click();
-  const popupPromise = page.waitForEvent('popup');
+  const downloadPromise = page.waitForEvent('download');
   await page.getByRole('link', { name: 'note' }).click();
-  const popup = await popupPromise;
-  await popup.waitForLoadState();
-  const content = await popup.content();
-  expect(content).toContain('text42');
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('note');
+  expect((await readAllFromStream(await download.createReadStream())).toString()).toEqual('text42');
 });
+
+function readAllFromStream(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  return new Promise(resolve => {
+    const chunks: Buffer[] = [];
+    stream.on('data', chunk => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+  });
+}

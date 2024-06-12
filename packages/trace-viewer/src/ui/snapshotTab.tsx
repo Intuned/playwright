@@ -18,46 +18,50 @@ import './snapshotTab.css';
 import * as React from 'react';
 import type { ActionTraceEvent } from '@trace/trace';
 import { context, prevInList } from './modelUtil';
-import { CodeMirrorWrapper } from '@web/components/codeMirrorWrapper';
 import { Toolbar } from '@web/components/toolbar';
 import { ToolbarButton } from '@web/components/toolbarButton';
-import { copy, useMeasure } from '@web/uiUtils';
+import { useMeasure } from '@web/uiUtils';
 import { InjectedScript } from '@injected/injectedScript';
-import { Recorder  } from '@injected/recorder';
+import { Recorder } from '@injected/recorder/recorder';
 import ConsoleAPI from '@injected/consoleApi';
 import { asLocator } from '@isomorphic/locatorGenerators';
 import type { Language } from '@isomorphic/locatorGenerators';
 import { locatorOrSelectorAsSelector } from '@isomorphic/locatorParser';
 import { TabbedPaneTab } from '@web/components/tabbedPane';
+import { BrowserFrame } from './browserFrame';
 
 export const SnapshotTab: React.FunctionComponent<{
   action: ActionTraceEvent | undefined,
   sdkLanguage: Language,
   testIdAttributeName: string,
-}> = ({ action, sdkLanguage, testIdAttributeName }) => {
+  isInspecting: boolean,
+  setIsInspecting: (isInspecting: boolean) => void,
+  highlightedLocator: string,
+  setHighlightedLocator: (locator: string) => void,
+}> = ({ action, sdkLanguage, testIdAttributeName, isInspecting, setIsInspecting, highlightedLocator, setHighlightedLocator }) => {
   const [measure, ref] = useMeasure<HTMLDivElement>();
   const [snapshotTab, setSnapshotTab] = React.useState<'action'|'before'|'after'>('action');
-  const [isInspecting, setIsInspecting] = React.useState(false);
-  const [highlightedLocator, setHighlightedLocator] = React.useState<string>('');
-  const [pickerVisible, setPickerVisible] = React.useState(false);
 
+  type Snapshot = { action: ActionTraceEvent, snapshotName: string, point?: { x: number, y: number } };
   const { snapshots } = React.useMemo(() => {
     if (!action)
       return { snapshots: {} };
 
     // if the action has no beforeSnapshot, use the last available afterSnapshot.
-    let beforeSnapshot = action.beforeSnapshot ? { action, snapshotName: action.beforeSnapshot } : undefined;
+    let beforeSnapshot: Snapshot | undefined = action.beforeSnapshot ? { action, snapshotName: action.beforeSnapshot } : undefined;
     let a = action;
     while (!beforeSnapshot && a) {
       a = prevInList(a);
       beforeSnapshot = a?.afterSnapshot ? { action: a, snapshotName: a?.afterSnapshot } : undefined;
     }
-    const afterSnapshot = action.afterSnapshot ? { action, snapshotName: action.afterSnapshot } : beforeSnapshot;
-    const actionSnapshot = action.inputSnapshot ? { action, snapshotName: action.inputSnapshot } : afterSnapshot;
+    const afterSnapshot: Snapshot | undefined = action.afterSnapshot ? { action, snapshotName: action.afterSnapshot } : beforeSnapshot;
+    const actionSnapshot: Snapshot | undefined = action.inputSnapshot ? { action, snapshotName: action.inputSnapshot } : afterSnapshot;
+    if (actionSnapshot)
+      actionSnapshot.point = action.point;
     return { snapshots: { action: actionSnapshot, before: beforeSnapshot, after: afterSnapshot } };
   }, [action]);
 
-  const { snapshotInfoUrl, snapshotUrl, pointX, pointY, popoutUrl } = React.useMemo(() => {
+  const { snapshotInfoUrl, snapshotUrl, popoutUrl } = React.useMemo(() => {
     const snapshot = snapshots[snapshotTab];
     if (!snapshot)
       return { snapshotUrl: kBlankSnapshotUrl };
@@ -65,16 +69,22 @@ export const SnapshotTab: React.FunctionComponent<{
     const params = new URLSearchParams();
     params.set('trace', context(snapshot.action).traceUrl);
     params.set('name', snapshot.snapshotName);
+    if (snapshot.point) {
+      params.set('pointX', String(snapshot.point.x));
+      params.set('pointY', String(snapshot.point.y));
+    }
     const snapshotUrl = new URL(`snapshot/${snapshot.action.pageId}?${params.toString()}`, window.location.href).toString();
     const snapshotInfoUrl = new URL(`snapshotInfo/${snapshot.action.pageId}?${params.toString()}`, window.location.href).toString();
 
-    const pointX = snapshotTab === 'action' ? snapshot.action.point?.x : undefined;
-    const pointY = snapshotTab === 'action' ? snapshot.action.point?.y : undefined;
     const popoutParams = new URLSearchParams();
     popoutParams.set('r', snapshotUrl);
     popoutParams.set('trace', context(snapshot.action).traceUrl);
+    if (snapshot.point) {
+      popoutParams.set('pointX', String(snapshot.point.x));
+      popoutParams.set('pointY', String(snapshot.point.y));
+    }
     const popoutUrl = new URL(`snapshot.html?${popoutParams.toString()}`, window.location.href).toString();
-    return { snapshots, snapshotInfoUrl, snapshotUrl, pointX, pointY, popoutUrl };
+    return { snapshots, snapshotInfoUrl, snapshotUrl, popoutUrl };
   }, [snapshots, snapshotTab]);
 
   const iframeRef0 = React.useRef<HTMLIFrameElement>(null);
@@ -110,12 +120,11 @@ export const SnapshotTab: React.FunctionComponent<{
           iframe.addEventListener('load', loadedCallback);
           iframe.addEventListener('error', loadedCallback);
 
-          const newUrl = snapshotUrl + (pointX === undefined ? '' : `&pointX=${pointX}&pointY=${pointY}`);
           // Try preventing history entry from being created.
           if (iframe.contentWindow)
-            iframe.contentWindow.location.replace(newUrl);
+            iframe.contentWindow.location.replace(snapshotUrl);
           else
-            iframe.src = newUrl;
+            iframe.src = snapshotUrl;
 
           await loadedPromise;
         } catch {
@@ -131,7 +140,7 @@ export const SnapshotTab: React.FunctionComponent<{
       loadingRef.current.visibleIframe = newVisibleIframe;
       setSnapshotInfo(newSnapshotInfo);
     })();
-  }, [snapshotUrl, snapshotInfoUrl, pointX, pointY]);
+  }, [snapshotUrl, snapshotInfoUrl]);
 
   const windowHeaderHeight = 40;
   const snapshotContainerSize = {
@@ -171,11 +180,6 @@ export const SnapshotTab: React.FunctionComponent<{
       iframe={iframeRef1.current}
       iteration={loadingRef.current.iteration} />
     <Toolbar>
-      <ToolbarButton title='Pick locator' disabled={!popoutUrl} toggled={pickerVisible} onClick={() => {
-        setPickerVisible(!pickerVisible);
-        setHighlightedLocator('');
-        setIsInspecting(!pickerVisible);
-      }}>Pick locator</ToolbarButton>
       {['action', 'before', 'after'].map(tab => {
         return <TabbedPaneTab
           id={tab}
@@ -193,43 +197,16 @@ export const SnapshotTab: React.FunctionComponent<{
         });
       }}></ToolbarButton>
     </Toolbar>
-    {pickerVisible && <Toolbar noMinHeight={true}>
-      <ToolbarButton icon='microscope' title='Pick locator' disabled={!popoutUrl} toggled={isInspecting} onClick={() => {
-        setIsInspecting(!isInspecting);
-      }}></ToolbarButton>
-      <CodeMirrorWrapper text={highlightedLocator} language={sdkLanguage} readOnly={!popoutUrl} focusOnChange={true} wrapLines={true} onChange={text => {
-        // Updating text needs to go first - react can squeeze a render between the state updates.
-        setHighlightedLocator(text);
-        setIsInspecting(false);
-      }}></CodeMirrorWrapper>
-      <ToolbarButton icon='files' title='Copy locator' disabled={!popoutUrl} onClick={() => {
-        copy(highlightedLocator);
-      }}></ToolbarButton>
-    </Toolbar>}
     <div ref={ref} className='snapshot-wrapper'>
       <div className='snapshot-container' style={{
         width: snapshotContainerSize.width + 'px',
         height: snapshotContainerSize.height + 'px',
         transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
       }}>
-        <div className='window-header'>
-          <div style={{ whiteSpace: 'nowrap' }}>
-            <span className='window-dot' style={{ backgroundColor: 'rgb(242, 95, 88)' }}></span>
-            <span className='window-dot' style={{ backgroundColor: 'rgb(251, 190, 60)' }}></span>
-            <span className='window-dot' style={{ backgroundColor: 'rgb(88, 203, 66)' }}></span>
-          </div>
-          <div className='window-address-bar' title={snapshotInfo.url || 'about:blank'}>{snapshotInfo.url || 'about:blank'}</div>
-          <div style={{ marginLeft: 'auto' }}>
-            <div>
-              <span className='window-menu-bar'></span>
-              <span className='window-menu-bar'></span>
-              <span className='window-menu-bar'></span>
-            </div>
-          </div>
-        </div>
+        <BrowserFrame url={snapshotInfo.url} />
         <div className='snapshot-switcher'>
-          <iframe ref={iframeRef0} name='snapshot' className={loadingRef.current.visibleIframe === 0 ? 'snapshot-visible' : ''}></iframe>
-          <iframe ref={iframeRef1} name='snapshot' className={loadingRef.current.visibleIframe === 1 ? 'snapshot-visible' : ''}></iframe>
+          <iframe ref={iframeRef0} name='snapshot' title='DOM Snapshot' className={loadingRef.current.visibleIframe === 0 ? 'snapshot-visible' : ''}></iframe>
+          <iframe ref={iframeRef1} name='snapshot' title='DOM Snapshot' className={loadingRef.current.visibleIframe === 1 ? 'snapshot-visible' : ''}></iframe>
         </div>
       </div>
     </div>
@@ -256,37 +233,56 @@ export const InspectModeController: React.FunctionComponent<{
   iteration: number,
 }> = ({ iframe, isInspecting, sdkLanguage, testIdAttributeName, highlightedLocator, setHighlightedLocator, iteration }) => {
   React.useEffect(() => {
-    const win = iframe?.contentWindow as any;
-    let recorder: Recorder | undefined;
+    const recorders: { recorder: Recorder, frameSelector: string }[] = [];
+    const isUnderTest = new URLSearchParams(window.location.search).get('isUnderTest') === 'true';
     try {
-      if (!win)
-        return;
-      recorder = win._recorder;
-      if (!recorder && !isInspecting && !highlightedLocator)
-        return;
+      createRecorders(recorders, sdkLanguage, testIdAttributeName, isUnderTest, '', iframe?.contentWindow);
     } catch {
-      // Potential cross-origin exception when accessing win._recorder.
-      return;
+      // Potential cross-origin exceptions.
     }
-    if (!recorder) {
-      const injectedScript = new InjectedScript(win, false, sdkLanguage, testIdAttributeName, 1, 'chromium', []);
-      recorder = new Recorder(injectedScript, {
+
+    for (const { recorder, frameSelector } of recorders) {
+      const actionSelector = locatorOrSelectorAsSelector(sdkLanguage, highlightedLocator, testIdAttributeName);
+      recorder.setUIState({
+        mode: isInspecting ? 'inspecting' : 'none',
+        actionSelector: actionSelector.startsWith(frameSelector) ? actionSelector.substring(frameSelector.length).trim() : undefined,
+        language: sdkLanguage,
+        testIdAttributeName,
+        overlay: { offsetX: 0 },
+      }, {
         async setSelector(selector: string) {
-          setHighlightedLocator(asLocator('javascript', selector, false /* isFrameLocator */, true /* playSafe */));
+          setHighlightedLocator(asLocator(sdkLanguage, frameSelector + selector));
+        },
+        highlightUpdated() {
+          for (const r of recorders) {
+            if (r.recorder !== recorder)
+              r.recorder.clearHighlight();
+          }
         }
       });
-      win._recorder = recorder;
     }
-    const actionSelector = locatorOrSelectorAsSelector(sdkLanguage, highlightedLocator, testIdAttributeName);
-    recorder.setUIState({
-      mode: isInspecting ? 'inspecting' : 'none',
-      actionSelector,
-      language: sdkLanguage,
-      testIdAttributeName,
-    });
   }, [iframe, isInspecting, highlightedLocator, setHighlightedLocator, sdkLanguage, testIdAttributeName, iteration]);
   return <></>;
 };
+
+function createRecorders(recorders: { recorder: Recorder, frameSelector: string }[], sdkLanguage: Language, testIdAttributeName: string, isUnderTest: boolean, parentFrameSelector: string, frameWindow: Window | null | undefined) {
+  if (!frameWindow)
+    return;
+  const win = frameWindow as any;
+  if (!win._recorder) {
+    const injectedScript = new InjectedScript(frameWindow as any, isUnderTest, sdkLanguage, testIdAttributeName, 1, 'chromium', []);
+    const recorder = new Recorder(injectedScript);
+    win._injectedScript = injectedScript;
+    win._recorder = { recorder, frameSelector: parentFrameSelector };
+  }
+  recorders.push(win._recorder);
+
+  for (let i = 0; i < frameWindow.frames.length; ++i) {
+    const childFrame = frameWindow.frames[i];
+    const frameSelector = childFrame.frameElement ? win._injectedScript.generateSelectorSimple(childFrame.frameElement, { omitInternalEngines: true, testIdAttributeName }) + ' >> internal:control=enter-frame >> ' : '';
+    createRecorders(recorders, sdkLanguage, testIdAttributeName, isUnderTest, parentFrameSelector + frameSelector, childFrame);
+  }
+}
 
 const kDefaultViewport = { width: 1280, height: 720 };
 const kBlankSnapshotUrl = 'data:text/html,<body style="background: #ddd"></body>';

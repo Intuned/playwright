@@ -273,16 +273,16 @@ test('fixture timeout in beforeAll hook should not affect test', async ({ runInl
       import { test as base, expect } from '@playwright/test';
       const test = base.extend({
         fixture: [async ({}, use) => {
-          await new Promise(f => setTimeout(f, 500));
+          await new Promise(f => setTimeout(f, 1000));
           await use('hey');
-        }, { timeout: 800 }],
+        }, { timeout: 1600 }],
       });
       test.beforeAll(async ({ fixture }) => {
         // Nothing to see here.
       });
       test('test ok', async ({}) => {
-        test.setTimeout(1000);
-        await new Promise(f => setTimeout(f, 800));
+        test.setTimeout(2000);
+        await new Promise(f => setTimeout(f, 1600));
       });
     `
   });
@@ -454,4 +454,63 @@ test('should respect test.describe.configure', async ({ runInlineTest }) => {
   expect(result.passed).toBe(2);
   expect(result.output).toContain('test1-1000');
   expect(result.output).toContain('test2-2000');
+});
+
+test('beforeEach timeout should prevent others from running', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test.beforeEach(async () => {
+        console.log('\\n%%beforeEach1');
+        await new Promise(f => setTimeout(f, 2500));
+      });
+      test.beforeEach(async () => {
+        console.log('\\n%%beforeEach2');
+      });
+      test('test', async ({}) => {
+      });
+      test.afterEach(async () => {
+        console.log('\\n%%afterEach');
+        await new Promise(f => setTimeout(f, 1500));
+      });
+    `
+  }, { timeout: 2000 });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(result.outputLines).toEqual(['beforeEach1', 'afterEach']);
+});
+
+test('should report up to 3 timeout errors', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.spec.ts': `
+      import { test as base } from '@playwright/test';
+
+      const test = base.extend<{}, { autoWorker: void }>({
+        autoWorker: [
+          async ({}, use) => {
+            await use();
+            await new Promise(() => {});
+          },
+          { scope: 'worker', auto: true },
+        ],
+      })
+
+      test('test1', async () => {
+        await new Promise(() => {});
+      });
+
+      test.afterEach(async () => {
+        await new Promise(() => {});
+      });
+
+      test.afterAll(async () => {
+        await new Promise(() => {});
+      });
+    `
+  }, { timeout: 1000 });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(result.output).toContain('Test timeout of 1000ms exceeded.');
+  expect(result.output).toContain('Test timeout of 1000ms exceeded while running "afterEach" hook.');
+  expect(result.output).toContain('Worker teardown timeout of 1000ms exceeded while tearing down "autoWorker".');
 });

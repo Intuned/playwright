@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/experimental-ct-react17';
 import Button from '@/components/Button';
+import CheckChildrenProp from '@/components/CheckChildrenProp';
 import DefaultChildren from '@/components/DefaultChildren';
 import MultipleChildren from '@/components/MultipleChildren';
 
@@ -49,11 +50,17 @@ test('render string as child', async ({ mount }) => {
 });
 
 test('render array as child', async ({ mount }) => {
-  const component = await mount(<DefaultChildren>{[4,2]}</DefaultChildren>);
-  await expect(component).toContainText('42');
+  const component = await mount(<DefaultChildren>{[<h4>{[4]}</h4>,[[<p>[2,3]</p>]]]}</DefaultChildren>);
+  await expect(component.getByRole('heading', { level: 4 })).toHaveText('4');
+  await expect(component.getByRole('paragraph')).toHaveText('[2,3]');
 });
 
 test('render number as child', async ({ mount }) => {
   const component = await mount(<DefaultChildren>{1337}</DefaultChildren>);
   await expect(component).toContainText('1337');
+});
+
+test('absence of children when children prop is not provided', async ({ mount }) => {
+  const component = await mount(<CheckChildrenProp />);
+  await expect(component).toContainText('No Children');
 });

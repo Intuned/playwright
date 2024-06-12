@@ -21,11 +21,11 @@ import { browserTest, contextTest as test, expect } from '../config/browserTest'
 import { parseTraceRaw } from '../config/utils';
 import type { StackFrame } from '@protocol/channels';
 import type { ActionTraceEvent } from '../../packages/trace/src/trace';
-import { artifactsFolderName } from '../../packages/playwright-test/src/isomorphic/folders';
+import { artifactsFolderName } from '../../packages/playwright/src/isomorphic/folders';
 
 test.skip(({ trace }) => trace === 'on');
 
-test('should collect trace with resources, but no js', async ({ context, page, server }, testInfo) => {
+test('should collect trace with resources, but no js', async ({ context, page, server, asset }, testInfo) => {
   await context.tracing.start({ screenshots: true, snapshots: true });
   await page.goto(server.PREFIX + '/frames/frame.html');
   await page.setContent('<button>Click</button>');
@@ -33,6 +33,8 @@ test('should collect trace with resources, but no js', async ({ context, page, s
   await page.mouse.move(20, 20);
   await page.mouse.dblclick(30, 30);
   await page.keyboard.insertText('abc');
+  await page.goto(server.PREFIX + '/input/fileupload.html');
+  await page.locator('input[type="file"]').setInputFiles(asset('file-to-upload.txt'));
   await page.waitForTimeout(2000);  // Give it some time to produce screenshots.
   await page.close();
   await context.tracing.stop({ path: testInfo.outputPath('trace.zip') });
@@ -46,6 +48,8 @@ test('should collect trace with resources, but no js', async ({ context, page, s
     'mouse.move',
     'mouse.dblclick',
     'keyboard.insertText',
+    'page.goto',
+    'locator.setInputFiles',
     'page.waitForTimeout',
     'page.close',
   ]);
@@ -105,9 +109,7 @@ test('should not collect snapshots by default', async ({ context, page, server }
   expect(events.some(e => e.type === 'resource-snapshot')).toBeFalsy();
 });
 
-test('should not include buffers in the trace', async ({ context, page, server, mode }, testInfo) => {
-  test.skip(mode !== 'default', 'no buffers with remote connections');
-
+test('should not include buffers in the trace', async ({ context, page, server }, testInfo) => {
   await context.tracing.start({ snapshots: true });
   await page.goto(server.PREFIX + '/empty.html');
   await page.screenshot();
@@ -116,7 +118,9 @@ test('should not include buffers in the trace', async ({ context, page, server, 
   const screenshotEvent = actionObjects.find(a => a.apiName === 'page.screenshot');
   expect(screenshotEvent.beforeSnapshot).toBeTruthy();
   expect(screenshotEvent.afterSnapshot).toBeTruthy();
-  expect(screenshotEvent.result).toEqual({});
+  expect(screenshotEvent.result).toEqual({
+    'binary': '<Buffer>',
+  });
 });
 
 test('should exclude internal pages', async ({ browserName, context, page, server }, testInfo) => {
@@ -183,7 +187,7 @@ test('should collect two traces', async ({ context, page, server }, testInfo) =>
 });
 
 test('should respect tracesDir and name', async ({ browserType, server, mode }, testInfo) => {
-  test.skip(mode === 'service', 'Service ignores tracesDir');
+  test.skip(mode.startsWith('service'), 'Service ignores tracesDir');
 
   const tracesDir = testInfo.outputPath('traces');
   const browser = await browserType.launch({ tracesDir });
@@ -236,14 +240,25 @@ test('should respect tracesDir and name', async ({ browserType, server, mode }, 
   }
 });
 
-test('should not include trace resources from the provious chunks', async ({ context, page, server, browserName }, testInfo) => {
-  test.skip(browserName !== 'chromium', 'The number of screenshots is flaky in non-Chromium');
+test('should not include trace resources from the previous chunks', async ({ context, page, server, browserName, mode }, testInfo) => {
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
 
   await context.tracing.startChunk();
   await page.goto(server.EMPTY_PAGE);
-  await page.setContent('<button>Click</button>');
-  await page.click('"Click"');
+  await page.setContent(`
+    <style>
+      @keyframes move {
+        from { marign-left: 0; }
+        to   { margin-left: 1000px; }
+      }
+      button {
+        animation: 20s linear move;
+        animation-iteration-count: infinite;
+      }
+    </style>
+    <button>Click</button>
+  `);
+  await page.click('"Click"', { force: true });
   // Give it enough time for both screenshots to get into the trace.
   await new Promise(f => setTimeout(f, 3000));
   await context.tracing.stopChunk({ path: testInfo.outputPath('trace1.zip') });
@@ -251,11 +266,13 @@ test('should not include trace resources from the provious chunks', async ({ con
   await context.tracing.startChunk();
   await context.tracing.stopChunk({ path: testInfo.outputPath('trace2.zip') });
 
+  let jpegs: string[] = [];
   {
     const { resources } = await parseTraceRaw(testInfo.outputPath('trace1.zip'));
     const names = Array.from(resources.keys());
     expect(names.filter(n => n.endsWith('.html')).length).toBe(1);
-    expect(names.filter(n => n.endsWith('.jpeg')).length).toBeGreaterThan(0);
+    jpegs = names.filter(n => n.endsWith('.jpeg'));
+    expect(jpegs.length).toBeGreaterThan(0);
     // 1 source file for the test.
     expect(names.filter(n => n.endsWith('.txt')).length).toBe(1);
   }
@@ -265,8 +282,9 @@ test('should not include trace resources from the provious chunks', async ({ con
     const names = Array.from(resources.keys());
     // 1 network resource should be preserved.
     expect(names.filter(n => n.endsWith('.html')).length).toBe(1);
-    expect(names.filter(n => n.endsWith('.jpeg')).length).toBe(0);
-    // 0 source file for the second test.
+    // screenshots from the previous chunk should not be preserved.
+    expect(names.filter(n => jpegs.includes(n)).length).toBe(0);
+    // 0 source files for the second test.
     expect(names.filter(n => n.endsWith('.txt')).length).toBe(0);
   }
 });
@@ -318,6 +336,45 @@ test('should record network failures', async ({ context, page, server }, testInf
   const { events } = await parseTraceRaw(testInfo.outputPath('trace1.zip'));
   const requestEvent = events.find(e => e.type === 'resource-snapshot' && !!e.snapshot.response._failureText);
   expect(requestEvent).toBeTruthy();
+});
+
+test('should not crash when browser closes mid-trace', async ({ browserType, server }, testInfo) => {
+  const browser = await browserType.launch();
+  const page = await browser.newPage();
+  await page.context().tracing.start({ snapshots: true, screenshots: true });
+  await page.goto(server.EMPTY_PAGE);
+  await browser.close();
+  await new Promise(f => setTimeout(f, 1000));  // Give it some time to throw errors
+});
+
+test('should survive browser.close with auto-created traces dir', async ({ browserType }, testInfo) => {
+  const oldTracesDir = (browserType as any)._defaultLaunchOptions.tracesDir;
+  (browserType as any)._defaultLaunchOptions.tracesDir = undefined;
+  const browser = await browserType.launch();
+  const page = await browser.newPage();
+  await page.context().tracing.start();
+
+  const done = { value: false };
+  async function go() {
+    while (!done.value) {
+      // Produce a lot of operations to make sure tracing operations are enqueued.
+      for (let i = 0; i < 100; i++)
+        page.evaluate('1 + 1').catch(() => {});
+      await new Promise(f => setTimeout(f, 250));
+    }
+  }
+
+  void go();
+  await new Promise(f => setTimeout(f, 1000));
+
+  // Close the browser and give it some time to fail.
+  await Promise.all([
+    browser.close(),
+    new Promise(f => setTimeout(f, 500)),
+  ]);
+
+  done.value = true;
+  (browserType as any)._defaultLaunchOptions.tracesDir = oldTracesDir;
 });
 
 test('should not stall on dialogs', async ({ page, context, server }) => {
@@ -414,7 +471,7 @@ test('should include interrupted actions', async ({ context, page, server }, tes
 test('should throw when starting with different options', async ({ context }) => {
   await context.tracing.start({ screenshots: true, snapshots: true });
   const error = await context.tracing.start({ screenshots: false, snapshots: false }).catch(e => e);
-  expect(error.message).toContain('Tracing has been already started with different options');
+  expect(error.message).toContain('Tracing has been already started');
 });
 
 test('should throw when stopping without start', async ({ context }, testInfo) => {
@@ -434,6 +491,7 @@ test('should work with multiple chunks', async ({ context, page, server }, testI
   await page.setContent('<button>Click</button>');
   await page.click('"Click"');
   page.click('"ClickNoButton"', { timeout: 0 }).catch(() =>  {});
+  await page.evaluate(() => {});
   await context.tracing.stopChunk({ path: testInfo.outputPath('trace.zip') });
 
   await context.tracing.startChunk();
@@ -450,6 +508,7 @@ test('should work with multiple chunks', async ({ context, page, server }, testI
     'page.setContent',
     'page.click',
     'page.click',
+    'page.evaluate',
   ]);
   expect(trace1.events.some(e => e.type === 'frame-snapshot')).toBeTruthy();
   expect(trace1.events.some(e => e.type === 'resource-snapshot' && e.snapshot.request.url.endsWith('style.css'))).toBeTruthy();
@@ -638,7 +697,7 @@ test('should store postData for global request', async ({ request, server }, tes
 });
 
 test('should not flush console events', async ({ context, page, mode }, testInfo) => {
-  test.skip(mode === 'service', 'Uses artifactsFolderName');
+  test.skip(mode.startsWith('service'), 'Uses artifactsFolderName');
   const testId = test.info().testId;
   await context.tracing.start({ name: testId });
   const promise = new Promise<void>(f => {
@@ -699,12 +758,12 @@ test('should flush console events on tracing stop', async ({ context, page }, te
   const tracePath = testInfo.outputPath('trace.zip');
   await context.tracing.stop({ path: tracePath });
   const trace = await parseTraceRaw(tracePath);
-  const events = trace.events.filter(e => e.method === 'console');
+  const events = trace.events.filter(e => e.type === 'console');
   expect(events).toHaveLength(100);
 });
 
 test('should not emit after w/o before', async ({ browserType, mode }, testInfo) => {
-  test.skip(mode === 'service', 'Service ignores tracesDir');
+  test.skip(mode.startsWith('service'), 'Service ignores tracesDir');
 
   const tracesDir = testInfo.outputPath('traces');
   const browser = await browserType.launch({ tracesDir });
@@ -712,7 +771,11 @@ test('should not emit after w/o before', async ({ browserType, mode }, testInfo)
   const page = await context.newPage();
 
   await context.tracing.start({ name: 'name1', snapshots: true });
-  const evaluatePromise = page.evaluate(() => new Promise(f => (window as any).callback = f)).catch(() => {});
+  const evaluatePromise = page.evaluate(() => {
+    console.log('started');
+    return new Promise(f => (window as any).callback = f);
+  }).catch(() => {});
+  await page.waitForEvent('console');
   await context.tracing.stopChunk({ path: testInfo.outputPath('trace1.zip') });
   expect(fs.existsSync(path.join(tracesDir, 'name1.trace'))).toBe(true);
 
@@ -735,32 +798,53 @@ test('should not emit after w/o before', async ({ browserType, mode }, testInfo)
     }
   };
 
+  let call1: number;
   {
     const { events } = await parseTraceRaw(testInfo.outputPath('trace1.zip'));
-    expect(events.map(sanitize).filter(Boolean)).toEqual([
+    const sanitized = events.map(sanitize).filter(Boolean);
+    expect(sanitized).toEqual([
       {
         type: 'before',
-        callId: 0,
+        callId: expect.any(Number),
         apiName: 'page.evaluate'
-      }
+      },
+      {
+        type: 'before',
+        callId: expect.any(Number),
+        apiName: 'page.waitForEvent'
+      },
+      {
+        type: 'after',
+        callId: expect.any(Number),
+        apiName: undefined,
+      },
     ]);
+    call1 = sanitized[0].callId;
+    expect(sanitized[1].callId).toBe(sanitized[2].callId);
   }
 
+  let call2before: number;
+  let call2after: number;
   {
     const { events } = await parseTraceRaw(testInfo.outputPath('trace2.zip'));
-    expect(events.map(sanitize).filter(Boolean)).toEqual([
+    const sanitized = events.map(sanitize).filter(Boolean);
+    expect(sanitized).toEqual([
       {
         type: 'before',
-        callId: 6,
+        callId: expect.any(Number),
         apiName: 'page.evaluateHandle'
       },
       {
         type: 'after',
-        callId: 6,
+        callId: expect.any(Number),
         apiName: undefined
       }
     ]);
+    call2before = sanitized[0].callId;
+    call2after = sanitized[1].callId;
   }
+  expect(call2before).toBeGreaterThan(call1);
+  expect(call2after).toBe(call2before);
 });
 
 function expectRed(pixels: Buffer, offset: number) {

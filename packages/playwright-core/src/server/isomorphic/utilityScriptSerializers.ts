@@ -165,9 +165,9 @@ export function source() {
 
     if (isError(value)) {
       const error = value;
-      if ('captureStackTrace' in globalThis.Error) {
+      if (error.stack?.startsWith(error.name + ': ' + error.message)) {
         // v8
-        return error.stack || '';
+        return error.stack;
       }
       return `${error.name}: ${error.message}\n${error.stack}`;
     }
@@ -208,9 +208,15 @@ export function source() {
           o.push({ k: name, v: serialize(item, handleSerializer, visitorInfo) });
       }
 
-      // If Object.keys().length === 0 we fall back to toJSON if it exists
-      if (o.length === 0 && value.toJSON && typeof value.toJSON === 'function')
-        return innerSerialize(value.toJSON(), handleSerializer, visitorInfo);
+      let jsonWrapper;
+      try {
+        // If Object.keys().length === 0 we fall back to toJSON if it exists
+        if (o.length === 0 && value.toJSON && typeof value.toJSON === 'function')
+          jsonWrapper = { value: value.toJSON() };
+      } catch (e) {
+      }
+      if (jsonWrapper)
+        return innerSerialize(jsonWrapper.value, handleSerializer, visitorInfo);
 
       return { o, id };
     }

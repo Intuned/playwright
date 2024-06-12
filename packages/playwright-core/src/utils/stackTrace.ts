@@ -18,6 +18,7 @@ import path from 'path';
 import { parseStackTraceLine } from '../utilsBundle';
 import { isUnderTest } from './';
 import type { StackFrame } from '@protocol/channels';
+import { colors } from '../utilsBundle';
 
 export function rewriteErrorMessage<E extends Error>(e: E, newMessage: string): E {
   const lines: string[] = (e.stack?.split('\n') || []).filter(l => l.startsWith('    at '));
@@ -29,19 +30,11 @@ export function rewriteErrorMessage<E extends Error>(e: E, newMessage: string): 
 }
 
 const CORE_DIR = path.resolve(__dirname, '..', '..');
-const COVERAGE_PATH = path.join(CORE_DIR, '..', '..', 'tests', 'config', 'coverage.js');
 
 const internalStackPrefixes = [
   CORE_DIR,
 ];
 export const addInternalStackPrefix = (prefix: string) => internalStackPrefixes.push(prefix);
-
-export type ParsedStackTrace = {
-  allFrames: StackFrame[];
-  frames: StackFrame[];
-  frameTexts: string[];
-  apiName: string | undefined;
-};
 
 export type RawStack = string[];
 
@@ -54,8 +47,8 @@ export function captureRawStack(): RawStack {
   return stack.split('\n');
 }
 
-export function captureLibraryStackTrace(rawStack?: RawStack): ParsedStackTrace {
-  const stack = rawStack || captureRawStack();
+export function captureLibraryStackTrace(): { frames: StackFrame[], apiName: string } {
+  const stack = captureRawStack();
 
   const isTesting = isUnderTest();
   type ParsedFrame = {
@@ -67,8 +60,6 @@ export function captureLibraryStackTrace(rawStack?: RawStack): ParsedStackTrace 
     const frame = parseStackTraceLine(line);
     if (!frame || !frame.file)
       return null;
-    if (!process.env.PWDEBUGIMPL && isTesting && frame.file.includes(COVERAGE_PATH))
-      return null;
     const isPlaywrightLibrary = frame.file.startsWith(CORE_DIR);
     const parsed: ParsedFrame = {
       frame,
@@ -79,7 +70,6 @@ export function captureLibraryStackTrace(rawStack?: RawStack): ParsedStackTrace 
   }).filter(Boolean) as ParsedFrame[];
 
   let apiName = '';
-  const allFrames = parsedFrames;
 
   // Deepest transition between non-client code calling into client
   // code is the api entry.
@@ -110,11 +100,25 @@ export function captureLibraryStackTrace(rawStack?: RawStack): ParsedStackTrace 
   });
 
   return {
-    allFrames: allFrames.map(p => p.frame),
     frames: parsedFrames.map(p => p.frame),
-    frameTexts: parsedFrames.map(p => p.frameText),
     apiName
   };
+}
+
+export function stringifyStackFrames(frames: StackFrame[]): string[] {
+  const stackLines: string[] = [];
+  for (const frame of frames) {
+    if (frame.function)
+      stackLines.push(`    at ${frame.function} (${frame.file}:${frame.line}:${frame.column})`);
+    else
+      stackLines.push(`    at ${frame.file}:${frame.line}:${frame.column}`);
+  }
+  return stackLines;
+}
+
+export function captureLibraryStackText() {
+  const parsed = captureLibraryStackTrace();
+  return stringifyStackFrames(parsed.frames).join('\n');
 }
 
 export function splitErrorMessage(message: string): { name: string, message: string } {
@@ -123,6 +127,15 @@ export function splitErrorMessage(message: string): { name: string, message: str
     name: separationIdx !== -1 ? message.slice(0, separationIdx) : '',
     message: separationIdx !== -1 && separationIdx + 2 <= message.length ? message.substring(separationIdx + 2) : message,
   };
+}
+
+export function formatCallLog(log: string[] | undefined): string {
+  if (!log || !log.some(l => !!l))
+    return '';
+  return `
+Call log:
+  ${colors.dim('- ' + (log || []).join('\n  - '))}
+`;
 }
 
 export type ExpectZone = {

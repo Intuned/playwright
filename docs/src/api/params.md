@@ -97,10 +97,11 @@ A point to use relative to the top-left corner of element padding box. If not sp
 element.
 
 ## input-modifiers
-- `modifiers` <[Array]<[KeyboardModifier]<"Alt"|"Control"|"Meta"|"Shift">>>
+- `modifiers` <[Array]<[KeyboardModifier]<"Alt"|"Control"|"ControlOrMeta"|"Meta"|"Shift">>>
 
 Modifier keys to press. Ensures that only these modifiers are pressed during the operation, and then restores current
-modifiers back. If not specified, currently pressed modifiers are used.
+modifiers back. If not specified, currently pressed modifiers are used. "ControlOrMeta" resolves to "Control" on Windows
+and Linux and to "Meta" on macOS.
 
 ## input-button
 - `button` <[MouseButton]<"left"|"right"|"middle">>
@@ -307,7 +308,7 @@ When using [`method: Page.goto`], [`method: Page.route`], [`method: Page.waitFor
   - `width` <[int]> page width in pixels.
   - `height` <[int]> page height in pixels.
 
-Emulates consistent viewport for each page. Defaults to an 1280x720 viewport. 
+Emulates consistent viewport for each page. Defaults to an 1280x720 viewport.
 Use `null` to disable the consistent viewport emulation. Learn more about [viewport emulation](../emulation#viewport).
 
 :::note
@@ -403,9 +404,9 @@ unless explicitly provided.
 
 An instance of [FormData] can be created via [`method: APIRequestContext.createFormData`].
 
-## js-python-fetch-option-multipart
-* langs: js, python
-- `multipart` <[Object]<[string], [string]|[float]|[boolean]|[ReadStream]|[Object]>>
+## js-fetch-option-multipart
+* langs: js
+- `multipart` <[FormData]|[Object]<[string], [string]|[float]|[boolean]|[ReadStream]|[Object]>>
   - `name` <[string]> File name
   - `mimeType` <[string]> File type
   - `buffer` <[Buffer]> File content
@@ -415,14 +416,24 @@ this request body. If this parameter is specified `content-type` header will be 
 unless explicitly provided. File values can be passed either as [`fs.ReadStream`](https://nodejs.org/api/fs.html#fs_class_fs_readstream)
 or as file-like object containing file name, mime-type and its content.
 
+## python-fetch-option-multipart
+* langs: python
+- `multipart` <[Object]<[string], [string]|[float]|[boolean]|[ReadStream]|[Object]>>
+  - `name` <[string]> File name
+  - `mimeType` <[string]> File type
+  - `buffer` <[Buffer]> File content
+
+Provides an object that will be serialized as html form using `multipart/form-data` encoding and sent as
+this request body. If this parameter is specified `content-type` header will be set to `multipart/form-data`
+unless explicitly provided. File values can be passed as file-like object containing file name, mime-type and its content.
+
 ## csharp-fetch-option-multipart
 * langs: csharp
 - `multipart` <[FormData]>
 
 Provides an object that will be serialized as html form using `multipart/form-data` encoding and sent as
 this request body. If this parameter is specified `content-type` header will be set to `multipart/form-data`
-unless explicitly provided. File values can be passed either as [`fs.ReadStream`](https://nodejs.org/api/fs.html#fs_class_fs_readstream)
-or as file-like object containing file name, mime-type and its content.
+unless explicitly provided. File values can be passed as file-like object containing file name, mime-type and its content.
 
 An instance of [FormData] can be created via [`method: APIRequestContext.createFormData`].
 
@@ -510,7 +521,7 @@ Specify device scale factor (can be thought of as dpr). Defaults to `1`. Learn m
 ## context-option-ismobile
 - `isMobile` <[boolean]>
 
-Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device, so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more about [mobile emulation](../emulation.md#isMobile).
+Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device, so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more about [mobile emulation](../emulation.md#ismobile).
 
 ## context-option-hastouch
 - `hasTouch` <[boolean]>
@@ -734,6 +745,15 @@ Whether to allow sites to register Service workers. Defaults to `'allow'`.
 * `'allow'`: [Service Workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) can be registered.
 * `'block'`: Playwright will block all registration of Service Workers.
 
+## unroute-all-options-behavior
+* langs: js, csharp, python
+* since: v1.41
+- `behavior` <[UnrouteBehavior]<"wait"|"ignoreErrors"|"default">>
+
+Specifies wether to wait for already running handlers and what to do if they throw errors:
+* `'default'` - do not wait for current handler calls (if any) to finish, if unrouted handler throws, it may result in unhandled error
+* `'wait'` - wait for current handler calls (if any) to finish
+* `'ignoreErrors'` - do not wait for current handler calls (if any) to finish, all errors thrown by the handlers after unrouting are silently caught
 
 ## select-options-values
 * langs: java, js, csharp
@@ -837,6 +857,11 @@ Time to retry the assertion for in milliseconds. Defaults to `timeout` in `TestC
 
 Time to retry the assertion for in milliseconds. Defaults to `5000`.
 
+## assertions-ignore-case
+- `ignoreCase` <[boolean]>
+
+Whether to perform case-insensitive match. [`option: ignoreCase`] option takes precedence over the corresponding regular expression flag if specified.
+
 ## assertions-max-diff-pixels
 * langs: js
 - `maxDiffPixels` <[int]>
@@ -903,8 +928,12 @@ between the same pixel in compared images, between zero (strict) and one (lax), 
 ## browser-option-args
 - `args` <[Array]<[string]>>
 
+:::warning
+Use custom browser args at your own risk, as some of them may break Playwright functionality.
+:::
+
 Additional arguments to pass to the browser instance. The list of Chromium flags can be found
-[here](http://peter.sh/experiments/chromium-command-line-switches/).
+[here](https://peter.sh/experiments/chromium-command-line-switches/).
 
 ## browser-option-channel
 - `channel` <[string]>
@@ -986,6 +1015,7 @@ disable timeout.
 If specified, traces are saved into this directory.
 
 ## browser-option-devtools
+* deprecated: Use [debugging tools](../debug.md) instead.
 - `devtools` <[boolean]>
 
 **Chromium-only** Whether to auto-open a Developer Tools panel for each tab. If this option is `true`, the
@@ -1023,8 +1053,10 @@ For example, `"Playwright"` matches `<article><div>Playwright</div></article>`.
 ## locator-option-has
 - `has` <[Locator]>
 
-Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+Narrows down the results of the method to those which contain elements matching this relative locator.
 For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
+
+Inner locator **must be relative** to the outer locator and is queried starting with the outer locator match, not the document root. For example, you can find `content` that has `div` in `<article><content><div>Playwright</div></content></article>`. However, looking for `content` that has `article div` will fail, because the inner locator must be relative and should not use any elements outside the `content`.
 
 Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
 
@@ -1132,6 +1164,18 @@ Defaults to `"css"`.
 
 When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, text caret behavior will not be changed.  Defaults to `"hide"`.
 
+## screenshot-option-style
+- `style` <string>
+
+Text of the stylesheet to apply while making the screenshot. This is where you can hide dynamic elements, make elements invisible
+or change their properties to help you creating repeatable screenshots. This stylesheet pierces the Shadow DOM and applies
+to the inner frames.
+
+## screenshot-option-style-path
+- `stylePath` <[string]|[Array]<[string]>>
+
+File name containing the stylesheet to apply while making the screenshot. This is where you can hide dynamic elements, make elements invisible or change their properties to help you creating repeatable screenshots. This stylesheet pierces the Shadow DOM and applies to the inner frames.
+
 ## screenshot-options-common-list-v1.8
 - %%-screenshot-option-animations-%%
 - %%-screenshot-option-omit-background-%%
@@ -1160,8 +1204,7 @@ Text to locate the element for.
 
 Whether to find an exact match: case-sensitive and whole-string. Default to false. Ignored when locating by a regular expression. Note that exact match still trims whitespace.
 
-## locator-get-by-role-role
-* since: v1.27
+## get-by-role-to-have-role-role
 - `role` <[AriaRole]<"alert"|"alertdialog"|"application"|"article"|"banner"|"blockquote"|"button"|"caption"|"cell"|"checkbox"|"code"|"columnheader"|"combobox"|"complementary"|"contentinfo"|"definition"|"deletion"|"dialog"|"directory"|"document"|"emphasis"|"feed"|"figure"|"form"|"generic"|"grid"|"gridcell"|"group"|"heading"|"img"|"insertion"|"link"|"list"|"listbox"|"listitem"|"log"|"main"|"marquee"|"math"|"meter"|"menu"|"menubar"|"menuitem"|"menuitemcheckbox"|"menuitemradio"|"navigation"|"none"|"note"|"option"|"paragraph"|"presentation"|"progressbar"|"radio"|"radiogroup"|"region"|"row"|"rowgroup"|"rowheader"|"scrollbar"|"search"|"searchbox"|"separator"|"slider"|"spinbutton"|"status"|"strong"|"subscript"|"superscript"|"switch"|"tab"|"table"|"tablist"|"tabpanel"|"term"|"textbox"|"time"|"timer"|"toolbar"|"tooltip"|"tree"|"treegrid"|"treeitem">>
 
 Required aria role.
@@ -1589,7 +1632,7 @@ page.getByRole(AriaRole.BUTTON,
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByRole(AriaRole.Heading, new() { Name = "Sign up" }))
     .ToBeVisibleAsync();
 
@@ -1641,7 +1684,7 @@ expect(page.get_by_title("Issues count")).to_have_text("25 issues")
 ```
 
 ```csharp
-await Expect(page.GetByTitle("Issues count")).toHaveText("25 issues");
+await Expect(Page.GetByTitle("Issues count")).toHaveText("25 issues");
 ```
 
 ## test-config-snapshot-path-template
@@ -1688,13 +1731,17 @@ test.describe('suite', () => {
 
 The list of supported tokens:
 
-* `{testDir}` - Project's [`property: TestConfig.testDir`].
-  * Value: `/home/playwright/tests` (absolute path is since `testDir` is resolved relative to directory with config)
-* `{snapshotDir}` - Project's [`property: TestConfig.snapshotDir`].
-  * Value: `/home/playwright/tests` (since `snapshotDir` is not provided in config, it defaults to `testDir`)
+* `{arg}` - Relative snapshot path **without extension**. These come from the arguments passed to the `toHaveScreenshot()` and `toMatchSnapshot()` calls; if called without arguments, this will be an auto-generated snapshot name.
+  * Value: `foo/bar/baz`
+* `{ext}` - snapshot extension (with dots)
+  * Value: `.png`
 * `{platform}` - The value of `process.platform`.
 * `{projectName}` - Project's file-system-sanitized name, if any.
   * Value: `''` (empty string).
+* `{snapshotDir}` - Project's [`property: TestConfig.snapshotDir`].
+  * Value: `/home/playwright/tests` (since `snapshotDir` is not provided in config, it defaults to `testDir`)
+* `{testDir}` - Project's [`property: TestConfig.testDir`].
+  * Value: `/home/playwright/tests` (absolute path is since `testDir` is resolved relative to directory with config)
 * `{testFileDir}` - Directories in relative path from `testDir` to **test file**.
   * Value: `page`
 * `{testFileName}` - Test file name with extension.
@@ -1703,10 +1750,6 @@ The list of supported tokens:
   * Value: `page/page-click.spec.ts`
 * `{testName}` - File-system-sanitized test title, including parent describes but excluding file name.
   * Value: `suite-test-should-work`
-* `{arg}` - Relative snapshot path **without extension**. These come from the arguments passed to the `toHaveScreenshot()` and `toMatchSnapshot()` calls; if called without arguments, this will be an auto-generated snapshot name.
-  * Value: `foo/bar/baz`
-* `{ext}` - snapshot extension (with dots)
-  * Value: `.png`
 
 Each token can be preceded with a single character that will be used **only if** this token has non-empty value.
 

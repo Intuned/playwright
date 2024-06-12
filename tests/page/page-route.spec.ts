@@ -201,10 +201,15 @@ it('should show custom HTTP headers', async ({ page, server }) => {
 });
 
 // @see https://github.com/GoogleChrome/puppeteer/issues/4337
-it('should work with redirect inside sync XHR', async ({ page, server }) => {
+it('should work with redirect inside sync XHR', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28461' });
+  it.fixme(browserName === 'webkit', 'No Network.requestIntercepted for the request');
   await page.goto(server.EMPTY_PAGE);
   server.setRedirect('/logo.png', '/pptr.png');
-  await page.route('**/*', route => route.continue());
+  let continuePromise;
+  await page.route('**/*', route => {
+    continuePromise = route.continue();
+  });
   const status = await page.evaluate(async () => {
     const request = new XMLHttpRequest();
     request.open('GET', '/logo.png', false);  // `false` makes the request synchronous
@@ -212,6 +217,8 @@ it('should work with redirect inside sync XHR', async ({ page, server }) => {
     return request.status;
   });
   expect(status).toBe(200);
+  expect(continuePromise).toBeTruthy();
+  await continuePromise;
 });
 
 it('should pause intercepted XHR until continue', async ({ page, server, browserName }) => {
@@ -306,6 +313,24 @@ it('should be abortable with custom error codes', async ({ page, server, browser
     expect(failedRequest.failure().errorText).toBe('NS_ERROR_OFFLINE');
   else
     expect(failedRequest.failure().errorText).toBe('net::ERR_INTERNET_DISCONNECTED');
+});
+
+it('should not throw if request was cancelled by the page', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
+  let interceptCallback;
+  const interceptPromise = new Promise<Route>(f => interceptCallback = f);
+  await page.route('**/data.json', route => interceptCallback(route));
+  await page.goto(server.EMPTY_PAGE);
+  page.evaluate(url => {
+    globalThis.controller = new AbortController();
+    return fetch(url, { signal: globalThis.controller.signal });
+  }, server.PREFIX + '/data.json').catch(() => {});
+  const route = await interceptPromise;
+  const failurePromise = page.waitForEvent('requestfailed');
+  await page.evaluate(() => globalThis.controller.abort());
+  const cancelledRequest = await failurePromise;
+  expect(cancelledRequest.failure().errorText).toMatch(/cancelled|aborted/i);
+  await route.abort(); // Should not throw.
 });
 
 it('should send referer', async ({ page, server }) => {
@@ -714,7 +739,7 @@ it('should respect cors overrides', async ({ page, server, browserName, isAndroi
   }
 });
 
-it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isAndroid }) => {
+it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isAndroid, browserName }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20469' });
   it.fixme(isAndroid);
 
@@ -768,7 +793,10 @@ it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isA
     expect.soft(text1).toBe('Hello');
     expect.soft(text2).toBe('World');
     // Preflight for OPTIONS is auto-fulfilled, then OPTIONS, then GET without preflight.
-    expect.soft(requests).toEqual(['OPTIONS:/something', 'GET:/something']);
+    if (browserName === 'firefox')
+      expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
+    else
+      expect.soft(requests).toEqual(['OPTIONS:/something', 'GET:/something']);
   }
 });
 
@@ -902,6 +930,25 @@ it('should support the times parameter with route matching', async ({ page, serv
   expect(intercepted).toHaveLength(1);
 });
 
+it('should work if handler with times parameter was removed from another handler', async ({ page, server }) => {
+  const intercepted = [];
+  const handler = async route => {
+    intercepted.push('first');
+    void route.continue();
+  };
+  await page.route('**/*', handler, { times: 1 });
+  await page.route('**/*', async route => {
+    intercepted.push('second');
+    await page.unroute('**/*', handler);
+    await route.fallback();
+  });
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+  intercepted.length = 0;
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+});
+
 it('should support async handler w/ times', async ({ page, server }) => {
   await page.route('**/empty.html', async route => {
     await new Promise(f => setTimeout(f, 100));
@@ -966,3 +1013,20 @@ for (const method of ['fulfill', 'continue', 'fallback', 'abort'] as const) {
     expect(e.message).toContain('Route is already handled!');
   });
 }
+
+it('should intercept when postData is more than 1MB', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22753' });
+  await page.goto(server.EMPTY_PAGE);
+  let interceptionCallback;
+  const interceptionPromise = new Promise(x => interceptionCallback = x);
+  const POST_BODY = '0'.repeat(2 * 1024 * 1024); // 2MB
+  await page.route('**/404.html', async route => {
+    await route.abort();
+    interceptionCallback(route.request().postData());
+  });
+  await page.evaluate(POST_BODY => fetch('/404.html', {
+    method: 'POST',
+    body: POST_BODY,
+  }).catch(e => {}), POST_BODY);
+  expect(await interceptionPromise).toBe(POST_BODY);
+});

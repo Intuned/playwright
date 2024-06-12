@@ -1,19 +1,16 @@
 ---
 id: codegen-intro
-title: "Test generator"
+title: "Generating tests"
 ---
+
+## Introduction
 
 Playwright comes with the ability to generate tests out of the box and is a great way to quickly get started with testing. It will open two windows, a browser window where you interact with the website you wish to test and the Playwright Inspector window where you can record your tests, copy the tests, clear your tests as well as change the language of your tests.
 
 **You will learn**
 
 - [How to record a test](/codegen.md#recording-a-test)
-- [How to generate locators](/codegen.md#generate-locators)
-
-<video width="100%" height="100%" controls muted >
-  <source src="https://user-images.githubusercontent.com/13063165/197979804-c4fa3347-8fab-4526-a728-c1b2fbd079b4.mp4" type="video/mp4" />
-  Your browser does not support the video tag.
-</video>
+- [How to generate locators](/codegen.md#generating-locators)
 
 ## Running Codegen
 
@@ -32,67 +29,78 @@ playwright codegen demo.playwright.dev/todomvc
 ```
 
 ```bash csharp
-pwsh bin/Debug/netX/playwright.ps1 codegen demo.playwright.dev/todomvc
+pwsh bin/Debug/net8.0/playwright.ps1 codegen demo.playwright.dev/todomvc
 ```
 
 ### Recording a test
 
 Run `codegen` and perform actions in the browser. Playwright will generate the code for the user interactions. `Codegen` will look at the rendered page and figure out the recommended locator, prioritizing role, text and test id locators. If the generator identifies multiple elements matching the locator, it will improve the locator to make it resilient and uniquely identify the target element, therefore eliminating and reducing test(s) failing and flaking due to locators.
 
+With the test generator you can record:
+* Actions like click or fill by simply interacting with the page
+* Assertions by clicking on one of the icons in the toolbar and then clicking on an element on the page to assert against. You can choose:
+  * `'assert visibility'` to assert that an element is visible
+  * `'assert text'` to assert that an element contains specific text
+  * `'assert value'` to assert that an element has a specific value
+
 ######
 * langs: js
 
-<img width="1365" alt="Recording a test" src="https://user-images.githubusercontent.com/13063165/212754505-b98e80fd-6dda-48f7-860b-b32b4fabee33.png" />
+![Recording a test](https://github.com/microsoft/playwright/assets/13063165/34a79ea1-639e-4cb3-8115-bfdc78e3d34d)
 
 ######
 * langs: java
 
-<img width="1365" alt="Recording a test" src="https://user-images.githubusercontent.com/13063165/212754804-0d9f9d52-0a48-45c8-970d-e672d4a91221.png" />
+![recording a test](https://github.com/microsoft/playwright/assets/13063165/ec9c4071-4af8-4ae7-8b36-aebcc29bdbbb)
 
 ######
 * langs: python
 
-<img width="1365" alt="Recording a test" src="https://user-images.githubusercontent.com/13063165/212751993-b7da2c40-a7cc-4b13-9a91-40ee837042a1.png" />
+![recording a test](https://github.com/microsoft/playwright/assets/13063165/9751b609-6e4c-486b-a961-f86f177b1d58)
 
 ######
 * langs: csharp
 
-<img width="1365" alt="Screenshot 2023-01-16 at 20 42 26" src="https://user-images.githubusercontent.com/13063165/212754994-fa637d81-b81d-44b8-bcd7-5dc218034f0a.png" />
+![recording a test](https://github.com/microsoft/playwright/assets/13063165/53bdfb6f-d462-4ce0-ab95-0619faaebf1e)
 
-When you have finished interacting with the page, press the **record** button to stop the recording and use the **copy** button to copy the generated code to your editor.
+######
+* langs: js, java, python, csharp
 
-Use the **clear** button to clear the code to start recording again. Once finished close the Playwright inspector window or stop the terminal command.
+When you have finished interacting with the page, press the `'record'` button to stop the recording and use the `'copy'` button to copy the generated code to your editor.
+
+Use the `'clear'` button to clear the code to start recording again. Once finished close the Playwright inspector window or stop the terminal command.
 
 To learn more about generating tests check out or detailed guide on [Codegen](./codegen.md).
 
 ### Generating locators
 
-You can generate [locators](/locators.md) with the test generator. 
+You can generate [locators](/locators.md) with the test generator.
 
 * Press the `'Record'` button to stop the recording and the `'Pick Locator'` button will appear.
-* Click on the `'Pick Locator'` button and then hover over elements in the browser window to see the locator highlighted underneath each element. 
-* To choose a locator click on the element you would like to locate and the code for that locator will appear in the field next to the Pick Locator button.
-* You can then edit the locator in this field to fine tune it or use the copy button to copy it and paste it into your code.
+* Click on the `'Pick Locator'` button and then hover over elements in the browser window to see the locator highlighted underneath each element.
+* To choose a locator click on the element you would like to locate and the code for that locator will appear in the locator playground next to the Pick Locator button.
+* You can then edit the locator in the locator playground to fine tune it and see the matching element highlighted in the browser window. 
+* Use the copy button to copy the locator and paste it into your code.
 
 ######
 * langs: js
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753129-55fbcf69-0be3-422e-888a-f52060c7aa6b.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/2c8a12e2-4e98-4fdd-af92-1d73ae696d86)
 
 ######
 * langs: java
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753446-456484a8-8c37-4104-8db5-4525b74c8cf1.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/733b48fd-5edf-4150-93f0-018adc52b6ff)
 
 ######
 * langs: python
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753605-861d66a4-fc1c-4559-b821-cb1f39059337.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/95d11f48-96a4-46b9-9c2a-63c3aa4fdce7)
 
 ######
 * langs: csharp
 
-<img width="1321" alt="Picking a locator" src="https://user-images.githubusercontent.com/13063165/212753728-49d35a7c-c05a-4298-bf66-89930d2cb578.png" />
+![picking a locator](https://github.com/microsoft/playwright/assets/13063165/1478f56f-422f-4276-9696-0674041f11dc)
 
 ### Emulation
 

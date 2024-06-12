@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, playwrightCtConfigText } from './playwright-test-fixtures';
 
 test('should load nested as esm when package.json has type module', async ({ runInlineTest }) => {
   const result = await runInlineTest({
@@ -51,6 +51,23 @@ test('should support import assertions', async ({ runInlineTest }) => {
     `
   });
 
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should support import attributes', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      import packageJSON from './package.json' with { type: 'json' };
+      export default { };
+    `,
+    'package.json': JSON.stringify({ type: 'module' }),
+    'a.test.ts': `
+      import config from './config.json' with { type: 'json' };
+      import { test, expect } from '@playwright/test';
+      test('pass', async () => {});
+    `
+  });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
 });
@@ -155,6 +172,32 @@ test('should use source maps', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
   expect(output).toContain('[foo] › a.test.ts:4:7 › check project name');
+});
+
+test('should use source maps when importing a file throws an error', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29418' });
+
+  const result = await runInlineTest({
+    'package.json': `{ "type": "module" }`,
+    'playwright.config.ts': `
+      export default {};
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+
+      throw new Error('Oh my!');
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`Error: Oh my!
+
+   at a.test.ts:4
+
+  2 |       import { test, expect } from '@playwright/test';
+  3 |
+> 4 |       throw new Error('Oh my!');
+    |             ^
+  `);
 });
 
 test('should show the codeframe in errors', async ({ runInlineTest }) => {
@@ -481,10 +524,7 @@ test('should resolve no-extension import to .jsx file in ESM mode', async ({ run
 test('should resolve .js import to .tsx file in ESM mode for components', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'package.json': `{ "type": "module" }`,
-    'playwright.config.ts': `
-      import { defineConfig } from '@playwright/experimental-ct-react';
-      export default defineConfig({ projects: [{name: 'foo'}] });
-    `,
+    'playwright.config.ts': playwrightCtConfigText,
     'playwright/index.html': `<script type="module" src="./index.ts"></script>`,
     'playwright/index.ts': ``,
 
@@ -529,7 +569,9 @@ test('should load cjs config and test in non-ESM mode', async ({ runInlineTest }
   expect(result.passed).toBe(2);
 });
 
-test('should disallow ESM when config is cjs', async ({ runInlineTest }) => {
+test('should allow ESM when config is cjs', async ({ runInlineTest, nodeVersion }) => {
+  test.skip(nodeVersion.major < 18, 'ESM loader is enabled conditionally with older API');
+
   const result = await runInlineTest({
     'package.json': `{ "type": "module" }`,
     'playwright.config.cjs': `
@@ -544,6 +586,186 @@ test('should disallow ESM when config is cjs', async ({ runInlineTest }) => {
     `,
   });
 
-  expect(result.exitCode).toBe(1);
-  expect(result.output).toContain('Unknown file extension ".ts"');
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should load mts without config', async ({ runInlineTest, nodeVersion }) => {
+  test.skip(nodeVersion.major < 18, 'ESM loader is enabled conditionally with older API');
+
+  const result = await runInlineTest({
+    'a.test.mts': `
+      import { test, expect } from '@playwright/test';
+      test('check project name', ({}, testInfo) => {
+        expect(true).toBe(true);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should load type module without config', async ({ runInlineTest, nodeVersion }) => {
+  test.skip(nodeVersion.major < 18, 'ESM loader is enabled conditionally with older API');
+
+  const result = await runInlineTest({
+    'package.json': `{ "type": "module" }`,
+    'helper.js': `
+      const foo = 42;
+      export default foo;
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      import foo from './helper.js';
+      test('check project name', ({}, testInfo) => {
+        expect(foo).toBe(42);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should be able to use use execSync with a Node.js file inside a spec', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/24516' });
+  const result = await runInlineTest({
+    'global-setup.ts': `
+      import { execSync, spawnSync, fork } from 'child_process';
+      console.log('%%global-setup import level');
+      console.log('%%execSync: ' + execSync('node hello.js').toString());
+      console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+      export default async () => {
+        console.log('%%global-setup export level');
+        console.log('%%execSync: ' + execSync('node hello.js').toString());
+        console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+        const child = fork('hellofork.js');
+        child.on('message', (m) => console.log('%%fork: ' + m));
+        await new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+      }
+    `,
+    'global-teardown.ts': `
+      import { execSync, spawnSync, fork } from 'child_process';
+      console.log('%%global-teardown import level');
+      console.log('%%execSync: ' + execSync('node hello.js').toString());
+      console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+      export default async () => {
+        console.log('%%global-teardown export level');
+        console.log('%%execSync: ' + execSync('node hello.js').toString());
+        console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+        const child = fork('hellofork.js');
+        child.on('message', (m) => console.log('%%fork: ' + m));
+        await new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+      }
+    `,
+    'package.json': `{ "type": "module" }`,
+    'playwright.config.ts': `export default {
+      projects: [{name: 'foo'}],
+      globalSetup: './global-setup.ts',
+      globalTeardown: './global-teardown.ts',
+    };`,
+    'hello.js': `console.log('hello from hello.js');`,
+    'hellofork.js': `process.send('hello from hellofork.js');`,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      import { execSync, spawnSync, fork } from 'child_process';
+      console.log('%%inside test file');
+      console.log('%%execSync: ' + execSync('node hello.js').toString());
+      console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+      test('check project name', async ({}) => {
+        console.log('%%inside test');
+        console.log('%%execSync: ' + execSync('node hello.js').toString());
+        console.log('%%spawnSync: ' + spawnSync('node', ['hello.js']).stdout.toString());
+        const child = fork('hellofork.js');
+        child.on('message', (m) => console.log('%%fork: ' + m));
+        await new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.outputLines).toEqual([
+    'global-setup import level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'global-teardown import level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'global-setup export level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'fork: hello from hellofork.js',
+    'inside test file',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'inside test file',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'inside test',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'fork: hello from hellofork.js',
+    'global-teardown export level',
+    'execSync: hello from hello.js',
+    'spawnSync: hello from hello.js',
+    'fork: hello from hellofork.js',
+  ]);
+});
+
+test('should be able to use mergeTests/mergeExpect', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.mjs': `
+      import { test as base, expect as baseExpect, mergeTests, mergeExpects } from '@playwright/test';
+      const test = mergeTests(
+        base.extend({
+          myFixture1: '1',
+        }),
+        base.extend({
+          myFixture2: '2',
+        }),
+      );
+
+      const expect = mergeExpects(
+        baseExpect.extend({
+          async toBeFoo1(page, x) {
+            return { pass: true, message: () => '' };
+          }
+        }),
+        baseExpect.extend({
+          async toBeFoo2(page, x) {
+            return { pass: true, message: () => '' };
+          }
+        }),
+      );
+
+      test('merged', async ({ myFixture1, myFixture2 }) => {
+        console.log('%%myFixture1: ' + myFixture1);
+        console.log('%%myFixture2: ' + myFixture2);
+        await expect(1).toBeFoo1();
+        await expect(1).toBeFoo2();
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.outputLines).toContain('myFixture1: 1');
+  expect(result.outputLines).toContain('myFixture2: 2');
+});
+
+test('should exit after merge-reports', async ({ runInlineTest, mergeReports }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28699' });
+  const result = await runInlineTest({
+    'merge.config.ts': `
+      export default { reporter: 'line' };
+    `,
+    'package.json': JSON.stringify({ type: 'module' }),
+    'nested/folder/a.esm.test.js': `
+      import { test, expect } from '@playwright/test';
+      test('test 1', ({}, testInfo) => {});
+    `
+  }, undefined, undefined, { additionalArgs: ['--reporter', 'blob'] });
+  expect(result.exitCode).toBe(0);
+  const { exitCode } = await mergeReports(test.info().outputPath('blob-report'), undefined, { additionalArgs: ['-c', 'merge.config.ts'] });
+  expect(exitCode).toBe(0);
 });

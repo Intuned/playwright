@@ -14,20 +14,8 @@
  * limitations under the License.
  */
 
-import type { FullConfig, FullProject, TestStatus, Metadata } from './test';
-export type { FullConfig, TestStatus } from './test';
-
-export interface Suite {
-  project(): FullProject | undefined;
-}
-
-export interface TestCase {
-  expectedStatus: TestStatus;
-}
-
-export interface TestResult {
-  status: TestStatus;
-}
+import type { TestStatus, Metadata, PlaywrightTestOptions, PlaywrightWorkerOptions, ReporterDescription, FullConfig, FullProject } from './test';
+export type { FullConfig, FullProject, TestStatus } from './test';
 
 /**
  * Result of the full test run.
@@ -41,11 +29,20 @@ export interface FullResult {
    *   - 'interrupted' - interrupted by the user.
    */
   status: 'passed' | 'failed' | 'timedout' | 'interrupted';
+
+  /**
+   * Test start wall time.
+   */
+  startTime: Date;
+
+  /**
+   * Test duration in milliseconds.
+   */
+  duration: number;
 }
 
 export interface Reporter {
-  onBegin?(config: FullConfig, suite: Suite): void;
-  onEnd?(result: FullResult): void | Promise<void>;
+  onEnd?(result: FullResult): Promise<{ status?: FullResult['status'] } | undefined | void> | void;
 }
 
 export interface JSONReport {
@@ -65,6 +62,14 @@ export interface JSONReport {
   };
   suites: JSONReportSuite[];
   errors: TestError[];
+  stats: {
+    startTime: string; // Date in ISO 8601 format.
+    duration: number; // In milliseconds;
+    expected: number;
+    unexpected: number;
+    flaky: number;
+    skipped: number;
+  }
 }
 
 export interface JSONReportSuite {
@@ -112,7 +117,7 @@ export interface JSONReportTestResult {
   stderr: JSONReportSTDIOEntry[];
   retry: number;
   steps?: JSONReportTestStep[];
-  startTime: Date;
+  startTime: string; // Date in ISO 8601 format.
   attachments: {
     name: string;
     path?: string;

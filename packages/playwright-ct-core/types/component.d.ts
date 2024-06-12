@@ -20,26 +20,27 @@ type JsonArray = JsonValue[];
 export type JsonObject = { [Key in string]?: JsonValue };
 
 export type JsxComponent = {
-  kind: 'jsx',
-  type: string,
+  __pw_type: 'jsx',
+  type: any,
   props: Record<string, any>,
-  children: (Component | string)[],
 };
 
 export type MountOptions = {
-  props?: Record<string, any>,
-  slots?: Record<string, any>,
-  on?: Record<string, Function>,
   hooksConfig?: any,
 };
 
-export type ObjectComponent = {
-  kind: 'object',
-  type: string,
-  options?: MountOptions
+export type ObjectComponentOptions = {
+  props?: Record<string, any>;
+  slots?: Record<string, string | string[]>;
+  on?: Record<string, Function>;
 };
 
-export type Component = JsxComponent | ObjectComponent | number | string | Array<any>;
+export type ObjectComponent = ObjectComponentOptions & {
+  __pw_type: 'object-component',
+  type: any,
+};
+
+export type Component = JsxComponent | ObjectComponent;
 
 declare global {
   interface Window {
@@ -52,5 +53,9 @@ declare global {
     __pw_hooks_after_mount?: (<HooksConfig extends JsonObject = JsonObject>(
       params: { hooksConfig?: HooksConfig; [key: string]: any }
     ) => Promise<void>)[];
+    // Can't start with __pw due to core reuse bindings logic for __pw*.
+    __ctDispatchFunction: (ordinal: number, args: any[]) => void;
+    __pwUnwrapObject: (value: any) => Promise<any>;
+    __pwTransformObject: (value: any, mapping: (v: any) => { result: any } | undefined) => any;
   }
 }

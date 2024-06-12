@@ -182,6 +182,60 @@ for (const useIntermediateMergeReport of [false, true] as const) {
       expect(result.output).not.toContain(`Slow test file: [qux] › dir${path.sep}b.test.js (`);
     });
 
+    test('should print if maxFailures is reached', async ({ runInlineTest }) => {
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          module.exports = {
+            maxFailures: 1,
+          };
+        `,
+        'dir/a.test.js': `
+          import { test, expect } from '@playwright/test';
+          test('failing1', async ({}) => {
+            expect(1).toBe(2);
+          });
+          test('failing2', async ({}) => {
+            expect(1).toBe(2);
+          });
+          test('failing3', async ({}) => {
+            expect(1).toBe(2);
+          });
+        `,
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.failed).toBe(1);
+      expect(result.passed).toBe(0);
+      expect(result.didNotRun).toBe(2);
+      expect(result.output).toContain('Testing stopped early after 1 maximum allowed failures.');
+    });
+
+    test('should print if globalTimeout is reached', async ({ runInlineTest }) => {
+      test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29768' });
+      const result = await runInlineTest({
+        'playwright.config.ts': `
+          module.exports = {
+            globalTimeout: 3000,
+          };
+        `,
+        'dir/a.test.js': `
+          import { test, expect } from '@playwright/test';
+          test('first', async ({}) => {
+          });
+          test('second (hanging)', async ({}) => {
+            await new Promise(() => {});
+          });
+          test('third', async ({}) => {
+          });
+        `,
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.passed).toBe(1);
+      // TODO: uncomment once https://github.com/microsoft/playwright/issues/30550 is fixed.
+      // expect(result.interrupted).toBe(1);
+      // expect(result.didNotRun).toBe(1);
+      expect(result.output).toContain('Timed out waiting 3s for the test suite to run');
+    });
+
     test('should not print slow parallel tests', async ({ runInlineTest }) => {
       const result = await runInlineTest({
         'playwright.config.ts': `

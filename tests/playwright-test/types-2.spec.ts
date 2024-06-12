@@ -32,6 +32,7 @@ test('basics should work', async ({ runTSC }) => {
         });
         test.skip('my test', async () => {});
         test.fixme('my test', async () => {});
+        test.fail('my test', async () => {});
       });
       test.describe(() => {
         test('my test', () => {});
@@ -46,6 +47,25 @@ test('basics should work', async ({ runTSC }) => {
       test.foo();
       test.describe.configure({ mode: 'parallel' });
       test.describe.configure({ retries: 3, timeout: 123 });
+      test('title', { tag: '@foo' }, () => {});
+      test('title', { tag: ['@foo', '@bar'] }, () => {});
+      test('title', { annotation: { type: 'issue' } }, () => {});
+      test('title', { annotation: [{ type: 'issue' }, { type: 'foo', description: 'bar' }] }, () => {});
+      test('title', {
+        tag: '@foo',
+        annotation: { type: 'issue' },
+      }, () => {});
+      test.skip('title', { tag: '@foo' }, () => {});
+      test.fixme('title', { tag: '@foo' }, () => {});
+      test.only('title', { tag: '@foo' }, () => {});
+      test.fail('title', { tag: '@foo' }, () => {});
+      test.describe('title', { tag: '@foo' }, () => {});
+      test.describe('title', { annotation: { type: 'issue' } }, () => {});
+      // @ts-expect-error
+      test.describe({ tag: '@foo' }, () => {});
+      test.describe.skip('title', { tag: '@foo' }, () => {});
+      test.describe.fixme('title', { tag: '@foo' }, () => {});
+      test.describe.only('title', { tag: '@foo' }, () => {});
     `
   });
   expect(result.exitCode).toBe(0);
@@ -84,11 +104,11 @@ test('can return anything from hooks', async ({ runTSC }) => {
 test('test.extend options should check types', async ({ runTSC }) => {
   const result = await runTSC({
     'helper.ts': `
-      import { test as base, expect } from '@playwright/test';
+      import { test as base, expect, mergeTests } from '@playwright/test';
       export type Params = { foo: string };
       export const test = base;
       export const test1 = test.extend<Params>({ foo: [ 'foo', { option: true } ] });
-      export const test1b = test.extend<{ bar: string }>({ bar: [ 'bar', { option: true } ] });
+      export const testW = test.extend<{}, { bar: string }>({ bar: ['bar', { scope: 'worker' }] });
       export const testerror = test.extend<{ foo: string }>({
         // @ts-expect-error
         foo: 123
@@ -100,9 +120,21 @@ test('test.extend options should check types', async ({ runTSC }) => {
         // @ts-expect-error
         bar: async ({ baz }, run) => { await run(42); }
       });
-      // TODO: enable when _extendTest is out of experiment.
-      // export const test4 = test1._extendTest(test1b);
-      export const test4 = test1;
+      export const test4 = mergeTests(test1, testW);
+      const test5 = test4.extend<{}, { hey: string, hey2: string }>({
+        // @ts-expect-error
+        hey: [async ({ foo }, use) => {
+          await use(foo);
+        }, { scope: 'worker' }],
+        hey2: [async ({ bar }, use) => {
+          await use(bar);
+        }, { scope: 'worker' }],
+      });
+      export const test6 = test4.extend<{ hey: string }>({
+        hey: async ({ foo }, use) => {
+          await use(foo);
+        },
+      });
     `,
     'playwright.config.ts': `
       import { Params } from './helper';
@@ -127,7 +159,7 @@ test('test.extend options should check types', async ({ runTSC }) => {
       module.exports = configs;
     `,
     'a.spec.ts': `
-      import { test, test1, test2, test3, test4 } from './helper';
+      import { test, test1, test2, test3, test4, test6 } from './helper';
       // @ts-expect-error
       test('my test', async ({ foo }) => {});
       test1('my test', async ({ foo }) => {});
@@ -136,8 +168,12 @@ test('test.extend options should check types', async ({ runTSC }) => {
       test2('my test', async ({ foo, bar }) => {});
       // @ts-expect-error
       test2('my test', async ({ foo, baz }) => {});
-      // TODO: enable when _extendTest is out of experiment.
-      // test4('my test', async ({ foo, bar }) => {});
+      test4('my test', async ({ foo, bar }) => {});
+      // @ts-expect-error
+      test4('my test', async ({ foo, qux }) => {});
+      test6('my test', async ({ bar, hey }) => {});
+      // @ts-expect-error
+      test6('my test', async ({ qux }) => {});
     `
   });
   expect(result.exitCode).toBe(0);

@@ -24,6 +24,7 @@ export type ContextEntry = {
   startTime: number;
   endTime: number;
   browserName: string;
+  channel?: string;
   platform?: string;
   wallTime?: number;
   sdkLanguage?: Language;
@@ -32,9 +33,10 @@ export type ContextEntry = {
   options: trace.BrowserContextEventOptions;
   pages: PageEntry[];
   resources: ResourceSnapshot[];
-  actions: trace.ActionTraceEvent[];
-  events: trace.EventTraceEvent[];
-  initializers: { [key: string]: any };
+  actions: ActionEntry[];
+  events: (trace.EventTraceEvent | trace.ConsoleMessageTraceEvent)[];
+  stdio: trace.StdioTraceEvent[];
+  errors: trace.ErrorTraceEvent[];
   hasSource: boolean;
 };
 
@@ -46,6 +48,11 @@ export type PageEntry = {
     height: number,
   }[];
 };
+
+export type ActionEntry = trace.ActionTraceEvent & {
+  log: { time: number, message: string }[];
+};
+
 export function createEmptyContext(): ContextEntry {
   return {
     isPrimary: false,
@@ -62,7 +69,8 @@ export function createEmptyContext(): ContextEntry {
     resources: [],
     actions: [],
     events: [],
-    initializers: {},
+    errors: [],
+    stdio: [],
     hasSource: false
   };
 }

@@ -16,7 +16,7 @@
 
 import type http from 'http';
 import path from 'path';
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, parseTestRunnerOutput } from './playwright-test-fixtures';
 import { createHttpServer } from '../../packages/playwright-core/lib/utils/network';
 
 const SIMPLE_SERVER_PATH = path.join(__dirname, 'assets', 'simple-server.js');
@@ -89,6 +89,7 @@ test('should create a server', async ({ runInlineTest }, { workerIndex }) => {
 
 test('should create a server with environment variables', async ({ runInlineTest }, { workerIndex }) => {
   const port = workerIndex * 2 + 10500;
+  process.env['FOOEXTERNAL'] = 'EXTERNAL-BAR';
   const result = await runInlineTest({
     'test.spec.ts': `
       import { test, expect } from '@playwright/test';
@@ -96,6 +97,9 @@ test('should create a server with environment variables', async ({ runInlineTest
         expect(baseURL).toBe('http://localhost:${port}');
         await page.goto(baseURL + '/env-FOO');
         expect(await page.textContent('body')).toBe('BAR');
+
+        await page.goto(baseURL + '/env-FOOEXTERNAL');
+        expect(await page.textContent('body')).toBe('EXTERNAL-BAR');
       });
     `,
     'playwright.config.ts': `
@@ -115,6 +119,7 @@ test('should create a server with environment variables', async ({ runInlineTest
   expect(result.output).toContain('[WebServer] listening');
   expect(result.output).toContain('[WebServer] error from server');
   expect(result.report.suites[0].specs[0].tests[0].results[0].status).toContain('passed');
+  delete process.env['FOOEXTERNAL'];
 });
 
 test('should default cwd to config directory', async ({ runInlineTest }, testInfo) => {
@@ -433,7 +438,8 @@ test(`should support self signed certificate`, async ({ runInlineTest, httpsServ
 test('should send Accept header', async ({ runInlineTest, server }) => {
   let acceptHeader: string | undefined | null = null;
   server.setRoute('/hello', (req, res) => {
-    if (acceptHeader === null) acceptHeader = req.headers.accept;
+    if (acceptHeader === null)
+      acceptHeader = req.headers.accept;
     res.end('<html><body>hello</body></html>');
   });
   const result = await runInlineTest({
@@ -569,7 +575,7 @@ test.describe('baseURL with plugins', () => {
         });
       `,
       'playwright.config.ts': `
-        import { webServer } from '@playwright/test/lib/plugins';
+        import { webServer } from 'playwright/lib/plugins';
         module.exports = {
           _plugins: [
             webServer({
@@ -594,7 +600,7 @@ test.describe('baseURL with plugins', () => {
         });
       `,
       'playwright.config.ts': `
-        import { webServer } from '@playwright/test/lib/plugins';
+        import { webServer } from 'playwright/lib/plugins';
         module.exports = {
           webServer: {
             command: 'node ${JSON.stringify(SIMPLE_SERVER_PATH)} ${port}',
@@ -705,10 +711,10 @@ test('should be able to ignore "stderr"', async ({ runInlineTest }, { workerInde
   expect(result.output).not.toContain('error from server');
 });
 
-test('should forward stdout when set to "pipe" before server is ready', async ({ runInlineTest }, { workerIndex }) => {
+test('should forward stdout when set to "pipe" before server is ready', async ({ interactWithTestRunner }) => {
   test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
 
-  const result = await runInlineTest({
+  const testProcess = await interactWithTestRunner({
     'web-server.js': `
       console.log('output from server');
       console.log('\\n%%SEND-SIGINT%%');
@@ -728,7 +734,12 @@ test('should forward stdout when set to "pipe" before server is ready', async ({
         },
       };
     `,
-  }, { workers: 1 }, {}, { sendSIGINTAfter: 1 });
+  }, { workers: 1 });
+  await testProcess.waitForOutput('%%SEND-SIGINT%%');
+  process.kill(-testProcess.process.pid!, 'SIGINT');
+  await testProcess.exited;
+
+  const result = parseTestRunnerOutput(testProcess.output);
   expect(result.passed).toBe(0);
   expect(result.output).toContain('[WebServer] output from server');
   expect(result.output).not.toContain('Timed out waiting 3000ms');

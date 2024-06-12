@@ -26,16 +26,36 @@ import { JavaScriptFormatter } from './javascript';
 import { escapeWithQuotes } from '../../utils/isomorphic/stringUtils';
 import { asLocator } from '../../utils/isomorphic/locatorGenerators';
 
+type JavaLanguageMode = 'library' | 'junit';
+
 export class JavaLanguageGenerator implements LanguageGenerator {
-  id = 'java';
+  id: string;
   groupName = 'Java';
-  name = 'Library';
+  name: string;
   highlighter = 'java' as Language;
+  _mode: JavaLanguageMode;
+
+  constructor(mode: JavaLanguageMode) {
+    if (mode === 'library') {
+      this.name = 'Library';
+      this.id = 'java';
+    } else if (mode === 'junit') {
+      this.name = 'JUnit';
+      this.id = 'java-junit';
+    } else {
+      throw new Error(`Unknown Java language mode: ${mode}`);
+    }
+    this._mode = mode;
+  }
 
   generateAction(actionInContext: ActionInContext): string {
     const action = actionInContext.action;
     const pageAlias = actionInContext.frame.pageAlias;
-    const formatter = new JavaScriptFormatter(6);
+    const offset = this._mode === 'junit' ? 4 : 6;
+    const formatter = new JavaScriptFormatter(offset);
+
+    if (this._mode !== 'library' && (action.name === 'openPage' || action.name === 'closePage'))
+      return '';
 
     if (action.name === 'openPage') {
       formatter.add(`Page ${pageAlias} = context.newPage();`);
@@ -48,14 +68,10 @@ export class JavaLanguageGenerator implements LanguageGenerator {
     let inFrameLocator = false;
     if (actionInContext.frame.isMainFrame) {
       subject = pageAlias;
-    } else if (actionInContext.frame.selectorsChain && action.name !== 'navigate') {
+    } else {
       const locators = actionInContext.frame.selectorsChain.map(selector => `.frameLocator(${quote(selector)})`);
       subject = `${pageAlias}${locators.join('')}`;
       inFrameLocator = true;
-    } else if (actionInContext.frame.name) {
-      subject = `${pageAlias}.frame(${quote(actionInContext.frame.name)})`;
-    } else {
-      subject = `${pageAlias}.frameByUrl(${quote(actionInContext.frame.url)})`;
     }
 
     const signals = toSignalMap(action);
@@ -67,8 +83,7 @@ export class JavaLanguageGenerator implements LanguageGenerator {
       });`);
     }
 
-    const actionCall = this._generateActionCall(action, inFrameLocator);
-    let code = `${subject}.${actionCall};`;
+    let code = this._generateActionCall(subject, action, inFrameLocator);
 
     if (signals.popup) {
       code = `Page ${signals.popup.popupAlias} = ${pageAlias}.waitForPopup(() -> {
@@ -87,12 +102,12 @@ export class JavaLanguageGenerator implements LanguageGenerator {
     return formatter.format();
   }
 
-  private _generateActionCall(action: Action, inFrameLocator: boolean): string {
+  private _generateActionCall(subject: string, action: Action, inFrameLocator: boolean): string {
     switch (action.name) {
       case 'openPage':
         throw Error('Not reached');
       case 'closePage':
-        return 'close()';
+        return `${subject}.close();`;
       case 'click': {
         let method = 'click';
         if (action.clickCount === 2)
@@ -108,25 +123,35 @@ export class JavaLanguageGenerator implements LanguageGenerator {
         if (action.position)
           options.position = action.position;
         const optionsText = formatClickOptions(options);
-        return this._asLocator(action.selector, inFrameLocator) + `.${method}(${optionsText})`;
+        return `${subject}.${this._asLocator(action.selector, inFrameLocator)}.${method}(${optionsText});`;
       }
       case 'check':
-        return this._asLocator(action.selector, inFrameLocator) + `.check()`;
+        return `${subject}.${this._asLocator(action.selector, inFrameLocator)}.check();`;
       case 'uncheck':
-        return this._asLocator(action.selector, inFrameLocator) + `.uncheck()`;
+        return `${subject}.${this._asLocator(action.selector, inFrameLocator)}.uncheck();`;
       case 'fill':
-        return this._asLocator(action.selector, inFrameLocator) + `.fill(${quote(action.text)})`;
+        return `${subject}.${this._asLocator(action.selector, inFrameLocator)}.fill(${quote(action.text)});`;
       case 'setInputFiles':
-        return this._asLocator(action.selector, inFrameLocator) + `.setInputFiles(${formatPath(action.files.length === 1 ? action.files[0] : action.files)})`;
+        return `${subject}.${this._asLocator(action.selector, inFrameLocator)}.setInputFiles(${formatPath(action.files.length === 1 ? action.files[0] : action.files)});`;
       case 'press': {
         const modifiers = toModifiers(action.modifiers);
         const shortcut = [...modifiers, action.key].join('+');
-        return this._asLocator(action.selector, inFrameLocator) + `.press(${quote(shortcut)})`;
+        return `${subject}.${this._asLocator(action.selector, inFrameLocator)}.press(${quote(shortcut)});`;
       }
       case 'navigate':
-        return `navigate(${quote(action.url)})`;
+        return `${subject}.navigate(${quote(action.url)});`;
       case 'select':
-        return this._asLocator(action.selector, inFrameLocator) + `.selectOption(${formatSelectOption(action.options.length > 1 ? action.options : action.options[0])})`;
+        return `${subject}.${this._asLocator(action.selector, inFrameLocator)}.selectOption(${formatSelectOption(action.options.length > 1 ? action.options : action.options[0])});`;
+      case 'assertText':
+        return `assertThat(${subject}.${this._asLocator(action.selector, inFrameLocator)}).${action.substring ? 'containsText' : 'hasText'}(${quote(action.text)});`;
+      case 'assertChecked':
+        return `assertThat(${subject}.${this._asLocator(action.selector, inFrameLocator)})${action.checked ? '' : '.not()'}.isChecked();`;
+      case 'assertVisible':
+        return `assertThat(${subject}.${this._asLocator(action.selector, inFrameLocator)}).isVisible();`;
+      case 'assertValue': {
+        const assertion = action.value ? `hasValue(${quote(action.value)})` : `isEmpty()`;
+        return `assertThat(${subject}.${this._asLocator(action.selector, inFrameLocator)}).${assertion};`;
+      }
     }
   }
 
@@ -136,6 +161,21 @@ export class JavaLanguageGenerator implements LanguageGenerator {
 
   generateHeader(options: LanguageGeneratorOptions): string {
     const formatter = new JavaScriptFormatter();
+    if (this._mode === 'junit') {
+      formatter.add(`
+      import com.microsoft.playwright.junit.UsePlaywright;
+      import com.microsoft.playwright.Page;
+      import com.microsoft.playwright.options.*;
+
+      import org.junit.jupiter.api.*;
+      import static com.microsoft.playwright.assertions.PlaywrightAssertions.*;
+
+      @UsePlaywright
+      public class TestExample {
+        @Test
+        void test(Page page) {`);
+      return formatter.format();
+    }
     formatter.add(`
     import com.microsoft.playwright.*;
     import com.microsoft.playwright.options.*;
@@ -152,6 +192,10 @@ export class JavaLanguageGenerator implements LanguageGenerator {
 
   generateFooter(saveStorage: string | undefined): string {
     const storageStateLine = saveStorage ? `\n      context.storageState(new BrowserContext.StorageStateOptions().setPath(${quote(saveStorage)}));\n` : '';
+    if (this._mode === 'junit') {
+      return `${storageStateLine}  }
+}`;
+    }
     return `${storageStateLine}    }
   }
 }`;

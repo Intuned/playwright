@@ -23,7 +23,6 @@ import { CRBrowser } from './crBrowser';
 import type { Env } from '../../utils/processLauncher';
 import { gracefullyCloseSet } from '../../utils/processLauncher';
 import { kBrowserCloseMessageId } from './crConnection';
-import { rewriteErrorMessage } from '../../utils/stackTrace';
 import { BrowserType, kNoXServerRunningError } from '../browserType';
 import type { ConnectionTransport, ProtocolRequest } from '../transport';
 import { WebSocketTransport } from '../transport';
@@ -38,7 +37,7 @@ import { getUserAgent } from '../../utils/userAgent';
 import { wrapInASCIIBox } from '../../utils/ascii';
 import { debugMode, headersArrayToObject, headersObjectToArray, } from '../../utils';
 import { removeFolders } from '../../utils/fileUtils';
-import { RecentLogsCollector } from '../../common/debugLogger';
+import { RecentLogsCollector } from '../../utils/debugLogger';
 import type { Progress } from '../progress';
 import { ProgressController } from '../progress';
 import { TimeoutSettings } from '../../common/timeoutSettings';
@@ -49,6 +48,7 @@ import { registry } from '../registry';
 import { ManualPromise } from '../../utils/manualPromise';
 import { validateBrowserContextOptions } from '../browserContext';
 import { chromiumSwitches } from './chromiumSwitches';
+import type { ProtocolError } from '../protocolError';
 
 const ARTIFACTS_FOLDER = path.join(os.tmpdir(), 'playwright-artifacts-');
 
@@ -82,7 +82,7 @@ export class Chromium extends BrowserType {
 
     const artifactsDir = await fs.promises.mkdtemp(ARTIFACTS_FOLDER);
 
-    const wsEndpoint = await urlToWSEndpoint(progress, endpointURL);
+    const wsEndpoint = await urlToWSEndpoint(progress, endpointURL, headersMap);
     progress.throwIfAborted();
 
     const chromeTransport = await WebSocketTransport.connect(progress, wsEndpoint, headersMap);
@@ -120,6 +120,7 @@ export class Chromium extends BrowserType {
     validateBrowserContextOptions(persistent, browserOptions);
     progress.throwIfAborted();
     const browser = await CRBrowser.connect(this.attribution.playwright, chromeTransport, browserOptions);
+    browser._isCollocatedWithServer = false;
     browser.on(Browser.Events.Disconnected, doCleanup);
     return browser;
   }
@@ -139,22 +140,25 @@ export class Chromium extends BrowserType {
     return CRBrowser.connect(this.attribution.playwright, transport, options, devtools);
   }
 
-  _rewriteStartupError(error: Error): Error {
-    if (error.message.includes('Missing X server'))
-      return rewriteErrorMessage(error, '\n' + wrapInASCIIBox(kNoXServerRunningError, 1));
+  _doRewriteStartupLog(error: ProtocolError): ProtocolError {
+    if (!error.logs)
+      return error;
+    if (error.logs.includes('Missing X server'))
+      error.logs = '\n' + wrapInASCIIBox(kNoXServerRunningError, 1);
     // These error messages are taken from Chromium source code as of July, 2020:
     // https://github.com/chromium/chromium/blob/70565f67e79f79e17663ad1337dc6e63ee207ce9/content/browser/zygote_host/zygote_host_impl_linux.cc
-    if (!error.message.includes('crbug.com/357670') && !error.message.includes('No usable sandbox!') && !error.message.includes('crbug.com/638180'))
+    if (!error.logs.includes('crbug.com/357670') && !error.logs.includes('No usable sandbox!') && !error.logs.includes('crbug.com/638180'))
       return error;
-    return rewriteErrorMessage(error, [
+    error.logs = [
       `Chromium sandboxing failed!`,
       `================================`,
-      `To workaround sandboxing issues, do either of the following:`,
-      `  - (preferred): Configure environment to support sandboxing: https://playwright.dev/docs/troubleshooting`,
+      `To avoid the sandboxing issue, do either of the following:`,
+      `  - (preferred): Configure your environment to support sandboxing`,
       `  - (alternative): Launch Chromium without sandbox using 'chromiumSandbox: false' option`,
       `================================`,
       ``,
-    ].join('\n'));
+    ].join('\n');
+    return error;
   }
 
   _amendEnvironment(env: Env, userDataDir: string, executable: string, browserArguments: string[]): Env {
@@ -202,7 +206,6 @@ export class Chromium extends BrowserType {
         ...headers,
       },
       data: JSON.stringify({
-        desiredCapabilities,
         capabilities: { alwaysMatch: desiredCapabilities }
       }),
       timeout: progress.timeUntilDeadline(),
@@ -292,7 +295,7 @@ export class Chromium extends BrowserType {
     const { args = [], proxy } = options;
     const userDataDirArg = args.find(arg => arg.startsWith('--user-data-dir'));
     if (userDataDirArg)
-      throw new Error('Pass userDataDir parameter to `browserType.launchPersistentContext(userDataDir, ...)` instead of specifying --user-data-dir argument');
+      throw this._createUserDataDirArgMisuseError('--user-data-dir');
     if (args.find(arg => arg.startsWith('--remote-debugging-pipe')))
       throw new Error('Playwright manages remote debugging connection itself.');
     if (args.find(arg => !arg.startsWith('-')))
@@ -348,13 +351,14 @@ export class Chromium extends BrowserType {
   }
 }
 
-async function urlToWSEndpoint(progress: Progress, endpointURL: string) {
+async function urlToWSEndpoint(progress: Progress, endpointURL: string, headers: { [key: string]: string; }) {
   if (endpointURL.startsWith('ws'))
     return endpointURL;
   progress.log(`<ws preparing> retrieving websocket url from ${endpointURL}`);
   const httpURL = endpointURL.endsWith('/') ? `${endpointURL}json/version/` : `${endpointURL}/json/version/`;
   const json = await fetchData({
     url: httpURL,
+    headers,
   }, async (_, resp) => new Error(`Unexpected status ${resp.statusCode} when connecting to ${httpURL}.\n` +
     `This does not look like a DevTools server, try connecting via ws://.`)
   );

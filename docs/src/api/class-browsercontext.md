@@ -64,7 +64,6 @@ await context.CloseAsync();
 
 ## event: BrowserContext.backgroundPage
 * since: v1.11
-* langs: js, python
 - argument: <[Page]>
 
 :::note
@@ -72,6 +71,12 @@ Only works with Chromium browser's persistent context.
 :::
 
 Emitted when new background page is created in the context.
+
+```java
+context.onBackgroundPage(backgroundPage -> {
+  System.out.println(backgroundPage.url());
+});
+```
 
 ```js
 const backgroundPage = await context.waitForEvent('backgroundpage');
@@ -85,6 +90,14 @@ background_page = await context.wait_for_event("backgroundpage")
 background_page = context.wait_for_event("backgroundpage")
 ```
 
+```csharp
+context.BackgroundPage += (_, backgroundPage) =>
+{
+    Console.WriteLine(backgroundPage.Url);
+};
+
+```
+
 ## event: BrowserContext.close
 * since: v1.8
 - argument: <[BrowserContext]>
@@ -94,13 +107,19 @@ Emitted when Browser context gets closed. This might happen because of one of th
 * Browser application is closed or crashed.
 * The [`method: Browser.close`] method was called.
 
+### option: BrowserContext.close.reason
+* since: v1.40
+- `reason` <[string]>
+
+The reason to be reported to the operations interrupted by the context closure.
+
 ## event: BrowserContext.console
 * since: v1.34
 * langs:
   - alias-java: consoleMessage
 - argument: <[ConsoleMessage]>
 
-Emitted when JavaScript within the page calls one of console API methods, e.g. `console.log` or `console.dir`. Also emitted if the page throws an error or a warning.
+Emitted when JavaScript within the page calls one of console API methods, e.g. `console.log` or `console.dir`.
 
 The arguments passed into `console.log` and the page are available on the [ConsoleMessage] event handler argument.
 
@@ -180,7 +199,10 @@ context.on("dialog", lambda dialog: dialog.accept())
 ```
 
 ```csharp
-context.Dialog += (_, dialog) => dialog.AcceptAsync();
+Context.Dialog += async (_, dialog) =>
+{
+    await dialog.AcceptAsync();
+};
 ```
 
 :::note
@@ -196,7 +218,7 @@ also fire for popup pages. See also [`event: Page.popup`] to receive events abou
 
 The earliest moment that page is available is when it has navigated to the initial url. For example, when opening a
 popup with `window.open('http://example.com')`, this event will fire when the network request to "http://example.com" is
-done and its response has started loading in the popup.
+done and its response has started loading in the popup. If you would like to route/listen to this network request, use [`method: BrowserContext.route`] and [`event: BrowserContext.request`] respectively instead of similar methods on the [Page].
 
 ```js
 const newPagePromise = context.waitForEvent('page');
@@ -238,6 +260,13 @@ Console.WriteLine(await popup.EvaluateAsync<string>("location.href"));
 Use [`method: Page.waitForLoadState`] to wait until the page gets to a particular state (you should not need it in most
 cases).
 :::
+
+## event: BrowserContext.webError
+* since: v1.38
+- argument: <[WebError]>
+
+Emitted when exception is unhandled in any of the pages in this
+context. To listen for errors from a particular page, use [`event: Page.pageError`] instead.
 
 ## event: BrowserContext.request
 * since: v1.12
@@ -377,7 +406,7 @@ browser_context.add_init_script(path="preload.js")
 ```
 
 ```csharp
-await context.AddInitScriptAsync(scriptPath: "preload.js");
+await Context.AddInitScriptAsync(scriptPath: "preload.js");
 ```
 
 :::note
@@ -425,7 +454,6 @@ Script to be evaluated in all pages in the browser context. Optional.
 
 ## method: BrowserContext.backgroundPages
 * since: v1.11
-* langs: js, python
 - returns: <[Array]<[Page]>>
 
 :::note
@@ -443,7 +471,71 @@ Returns the browser instance of the context. If it was launched as a persistent 
 ## async method: BrowserContext.clearCookies
 * since: v1.8
 
-Clears context cookies.
+Removes cookies from context. Accepts optional filter.
+
+**Usage**
+
+```js
+await context.clearCookies();
+await context.clearCookies({ name: 'session-id' });
+await context.clearCookies({ domain: 'my-origin.com' });
+await context.clearCookies({ domain: /.*my-origin\.com/ });
+await context.clearCookies({ path: '/api/v1' });
+await context.clearCookies({ name: 'session-id', domain: 'my-origin.com' });
+```
+
+
+```java
+context.clearCookies();
+context.clearCookies(new BrowserContext.ClearCookiesOptions().setName("session-id"));
+context.clearCookies(new BrowserContext.ClearCookiesOptions().setDomain("my-origin.com"));
+context.clearCookies(new BrowserContext.ClearCookiesOptions().setPath("/api/v1"));
+context.clearCookies(new BrowserContext.ClearCookiesOptions()
+                         .setName("session-id")
+                         .setDomain("my-origin.com"));
+```
+
+```python async
+await context.clear_cookies()
+await context.clear_cookies(name="session-id")
+await context.clear_cookies(domain="my-origin.com")
+await context.clear_cookies(path="/api/v1")
+await context.clear_cookies(name="session-id", domain="my-origin.com")
+```
+
+```python sync
+context.clear_cookies()
+context.clear_cookies(name="session-id")
+context.clear_cookies(domain="my-origin.com")
+context.clear_cookies(path="/api/v1")
+context.clear_cookies(name="session-id", domain="my-origin.com")
+```
+
+```csharp
+await context.ClearCookiesAsync();
+await context.ClearCookiesAsync(new() { Name = "session-id" });
+await context.ClearCookiesAsync(new() { Domain = "my-origin.com" });
+await context.ClearCookiesAsync(new() { Path = "/api/v1" });
+await context.ClearCookiesAsync(new() { Name = "session-id", Domain = "my-origin.com" });
+```
+
+### option: BrowserContext.clearCookies.name
+* since: v1.43
+- `name` <[string]|[RegExp]>
+
+Only removes cookies with the given name.
+
+### option: BrowserContext.clearCookies.domain
+* since: v1.43
+- `domain` <[string]|[RegExp]>
+
+Only removes cookies with the given domain.
+
+### option: BrowserContext.clearCookies.path
+* since: v1.43
+- `path` <[string]|[RegExp]>
+
+Only removes cookies with the given path.
 
 ## async method: BrowserContext.clearPermissions
 * since: v1.8
@@ -582,11 +674,11 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
-    browser = await webkit.launch(headless=false)
+    browser = await webkit.launch(headless=False)
     context = await browser.new_context()
     await context.expose_binding("pageURL", lambda source: source["page"].url)
     page = await context.new_page()
@@ -608,11 +700,11 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
-    browser = webkit.launch(headless=false)
+    browser = webkit.launch(headless=False)
     context = browser.new_context()
     context.expose_binding("pageURL", lambda source: source["page"].url)
     page = context.new_page()
@@ -768,7 +860,9 @@ const crypto = require('crypto');
 (async () => {
   const browser = await webkit.launch({ headless: false });
   const context = await browser.newContext();
-  await context.exposeFunction('sha256', text => crypto.createHash('sha256').update(text).digest('hex'));
+  await context.exposeFunction('sha256', text =>
+    crypto.createHash('sha256').update(text).digest('hex'),
+  );
   const page = await context.newPage();
   await page.setContent(`
     <script>
@@ -824,15 +918,15 @@ public class Example {
 ```python async
 import asyncio
 import hashlib
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-def sha256(text):
+def sha256(text: str) -> str:
     m = hashlib.sha256()
     m.update(bytes(text, "utf8"))
     return m.hexdigest()
 
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = await webkit.launch(headless=False)
     context = await browser.new_context()
@@ -859,13 +953,13 @@ asyncio.run(main())
 import hashlib
 from playwright.sync_api import sync_playwright
 
-def sha256(text):
+def sha256(text: str) -> str:
     m = hashlib.sha256()
     m.update(bytes(text, "utf8"))
     return m.hexdigest()
 
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = webkit.launch(headless=False)
     context = browser.new_context()
@@ -968,7 +1062,6 @@ The [origin] to grant permissions to, e.g. "https://example.com".
 
 ## async method: BrowserContext.newCDPSession
 * since: v1.11
-* langs: js, python, csharp
 - returns: <[CDPSession]>
 
 :::note
@@ -1106,11 +1199,11 @@ await browser.CloseAsync();
 It is possible to examine the request to decide the route action. For example, mocking all requests that contain some post data, and leaving all other requests as is:
 
 ```js
-await context.route('/api/**', route => {
+await context.route('/api/**', async route => {
   if (route.request().postData().includes('my-string'))
-    route.fulfill({ body: 'mocked-data' });
+    await route.fulfill({ body: 'mocked-data' });
   else
-    route.continue();
+    await route.continue();
 });
 ```
 
@@ -1124,16 +1217,16 @@ context.route("/api/**", route -> {
 ```
 
 ```python async
-def handle_route(route):
+async def handle_route(route: Route):
   if ("my-string" in route.request.post_data):
-    route.fulfill(body="mocked-data")
+    await route.fulfill(body="mocked-data")
   else:
-    route.continue_()
+    await route.continue_()
 await context.route("/api/**", handle_route)
 ```
 
 ```python sync
-def handle_route(route):
+def handle_route(route: Route):
   if ("my-string" in route.request.post_data):
     route.fulfill(body="mocked-data")
   else:
@@ -1145,7 +1238,7 @@ context.route("/api/**", handle_route)
 await page.RouteAsync("/api/**", async r =>
 {
     if (r.Request.PostData.Contains("my-string"))
-        await r.FulfillAsync(body: "mocked-data");
+        await r.FulfillAsync(new() { Body = "mocked-data" });
     else
         await r.ContinueAsync();
 });
@@ -1191,7 +1284,7 @@ How often a route should be used. By default it will be used every time.
 ## async method: BrowserContext.routeFromHAR
 * since: v1.23
 
-If specified the network requests that are made in the context will be served from the HAR file. Read more about [Replaying from HAR](../network.md#replaying-from-har).
+If specified the network requests that are made in the context will be served from the HAR file. Read more about [Replaying from HAR](../mock.md#replaying-from-har).
 
 Playwright will not serve requests intercepted by Service Worker from the HAR file. See [this](https://github.com/microsoft/playwright/issues/1090) issue. We recommend disabling Service Workers when using request interception by setting [`option: Browser.newContext.serviceWorkers`] to `'block'`.
 
@@ -1393,6 +1486,14 @@ Returns storage state for this browser context, contains current cookies and loc
 ## property: BrowserContext.tracing
 * since: v1.12
 - type: <[Tracing]>
+
+## async method: BrowserContext.unrouteAll
+* since: v1.41
+
+Removes all routes created with [`method: BrowserContext.route`] and [`method: BrowserContext.routeFromHAR`].
+
+### option: BrowserContext.unrouteAll.behavior = %%-unroute-all-options-behavior-%%
+* since: v1.41
 
 ## async method: BrowserContext.unroute
 * since: v1.8

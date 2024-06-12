@@ -201,6 +201,34 @@ test('should fallback to *:* when baseurl and paths are specified', async ({ run
   expect(result.output).not.toContain(`Could not`);
 });
 
+test('should use the location of the tsconfig as the paths root when no baseUrl is specified', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'foo/bar/util/b.ts': `
+      export const foo = 42;
+    `,
+    'dir2/tsconfig.json': `{
+      "compilerOptions": {
+        "target": "ES2019",
+        "module": "commonjs",
+        "lib": ["esnext", "dom", "DOM.Iterable"],
+        "paths": {"foo/*": ["../foo/*"]},
+      },
+    }`,
+    'dir2/inner.spec.ts': `
+      // This import should pick up ../foo/bar/util/b due to paths.
+      import { foo } from 'foo/bar/util/b';
+      import { test, expect } from '@playwright/test';
+      test('test', ({}, testInfo) => {
+        expect(foo).toBe(42);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).not.toContain(`Could not`);
+});
+
 test('should respect complex path resolver', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
@@ -477,6 +505,9 @@ test('should support extends in tsconfig.json', async ({ runInlineTest }) => {
     }`,
     'tsconfig.base1.json': `{
       "extends": "./tsconfig.base.json",
+      "compilerOptions": {
+        "allowJs": true,
+      },
     }`,
     'tsconfig.base2.json': `{
       "compilerOptions": {
@@ -490,7 +521,9 @@ test('should support extends in tsconfig.json', async ({ runInlineTest }) => {
         },
       },
     }`,
-    'a.test.ts': `
+    'a.test.js': `
+      // This js file is affected by tsconfig because allowJs is inherited.
+      // Next line resolve to the final baseUrl ("dir") + relative path mapping ("./foo/bar/util/*").
       const { foo } = require('util/file');
       import { test, expect } from '@playwright/test';
       test('test', ({}, testInfo) => {
@@ -504,4 +537,107 @@ test('should support extends in tsconfig.json', async ({ runInlineTest }) => {
 
   expect(result.passed).toBe(1);
   expect(result.exitCode).toBe(0);
+});
+
+test('should resolve paths relative to the originating config when extending and no baseUrl', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'tsconfig.json': `{
+      "extends": ["./dir/tsconfig.base.json"],
+    }`,
+    'dir/tsconfig.base.json': `{
+      "compilerOptions": {
+        "paths": {
+          "~/*": ["../mapped/*"],
+        },
+      },
+    }`,
+    'a.test.ts': `
+      // This resolves relative to the base tsconfig that defined path mapping,
+      // because there is no baseUrl in the final tsconfig.
+      const { foo } = require('~/file');
+      import { test, expect } from '@playwright/test';
+      test('test', ({}, testInfo) => {
+        expect(foo).toBe('foo');
+      });
+    `,
+    'mapped/file.ts': `
+      module.exports = { foo: 'foo' };
+    `,
+  });
+
+  expect(result.passed).toBe(1);
+  expect(result.exitCode).toBe(0);
+});
+
+test('should import packages with non-index main script through path resolver', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'app/pkg/main.ts': `
+      export const foo = 42;
+    `,
+    'app/pkg/package.json': `
+      { "main": "main.ts" }
+    `,
+    'package.json': `
+      { "name": "example-project" }
+    `,
+    'playwright.config.ts': `
+      export default {};
+    `,
+    'tsconfig.json': `{
+      "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+          "app/*": ["app/*"],
+        },
+      },
+    }`,
+    'example.spec.ts': `
+      import { foo } from 'app/pkg';
+      import { test, expect } from '@playwright/test';
+      test('test', ({}) => {
+        console.log('foo=' + foo);
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).not.toContain(`find module`);
+  expect(result.output).toContain(`foo=42`);
+});
+
+test('should respect tsconfig project references', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/29256' });
+
+  const result = await runInlineTest({
+    'playwright.config.ts': `export default { projects: [{name: 'foo'}], };`,
+    'tsconfig.json': `{
+      "files": [],
+      "references": [
+        { "path": "./tsconfig.app.json" },
+        { "path": "./tsconfig.test.json" }
+      ]
+    }`,
+    'tsconfig.test.json': `{
+      "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+          "util/*": ["./foo/bar/util/*"],
+        },
+      },
+    }`,
+    'foo/bar/util/b.ts': `
+      export const foo: string = 'foo';
+    `,
+    'a.test.ts': `
+      import { foo } from 'util/b';
+      import { test, expect } from '@playwright/test';
+      test('test', ({}, testInfo) => {
+        expect(foo).toBe('foo');
+      });
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
 });

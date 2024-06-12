@@ -16,21 +16,19 @@
 
 import * as React from 'react';
 import './stackTrace.css';
-import type { ActionTraceEvent } from '@trace/trace';
 import { ListView } from '@web/components/listView';
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
 import type { StackFrame } from '@protocol/channels';
 
 const StackFrameListView = ListView<StackFrame>;
 
 export const StackTraceView: React.FunctionComponent<{
-  action: ActionTraceEvent | undefined,
+  stack: StackFrame[] | undefined,
   selectedFrame: number,
   setSelectedFrame: (index: number) => void
-}> = ({ action, setSelectedFrame, selectedFrame }) => {
-  const frames = action?.stack || [];
+}> = ({ stack, setSelectedFrame, selectedFrame }) => {
+  const frames = stack || [];
   return <StackFrameListView
-    dataTestId='stack-trace'
+    name='stack-trace'
     items={frames}
     selectedItem={frames[selectedFrame]}
     render={frame => {

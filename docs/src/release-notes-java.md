@@ -4,13 +4,402 @@ title: "Release notes"
 toc_max_heading_level: 2
 ---
 
----
-id: release-notes
-title: "Release notes"
-toc_max_heading_level: 2
----
+## Version 1.44
 
-import LiteYouTube from '@site/src/components/LiteYouTube';
+### New APIs
+
+**Accessibility assertions**
+
+- [`method: LocatorAssertions.toHaveAccessibleName`] checks if the element has the specified accessible name:
+  ```java
+  Locator locator = page.getByRole(AriaRole.BUTTON);
+  assertThat(locator).hasAccessibleName("Submit");
+  ```
+
+- [`method: LocatorAssertions.toHaveAccessibleDescription`] checks if the element has the specified accessible description:
+  ```java
+  Locator locator = page.getByRole(AriaRole.BUTTON);
+  assertThat(locator).hasAccessibleDescription("Upload a photo");
+  ```
+
+- [`method: LocatorAssertions.toHaveRole`] checks if the element has the specified ARIA role:
+  ```java
+  Locator locator = page.getByTestId("save-button");
+  assertThat(locator).hasRole(AriaRole.BUTTON);
+  ```
+
+**Locator handler**
+
+- After executing the handler added with [`method: Page.addLocatorHandler`], Playwright will now wait until the overlay that triggered the handler is not visible anymore. You can opt-out of this behavior with the new `setNoWaitAfter` option.
+- You can use new `setTimes` option in [`method: Page.addLocatorHandler`] to specify maximum number of times the handler should be run.
+- The handler in [`method: Page.addLocatorHandler`] now accepts the locator as argument.
+- New [`method: Page.removeLocatorHandler`] method for removing previously added locator handlers.
+
+```java
+Locator locator = page.getByText("This interstitial covers the button");
+page.addLocatorHandler(locator, overlay -> {
+  overlay.locator("#close").click();
+}, new Page.AddLocatorHandlerOptions().setTimes(3).setNoWaitAfter(true));
+// Run your tests that can be interrupted by the overlay.
+// ...
+page.removeLocatorHandler(locator);
+```
+
+**Miscellaneous options**
+
+- New method [`method: FormData.append`] allows to specify repeating fields with the same name in [`setMultipart`](./api/class-requestoptions#request-options-set-multipart) option in `RequestOptions`:
+  ```java
+  FormData formData = FormData.create();
+  formData.append("file", new FilePayload("f1.js", "text/javascript",
+  "var x = 2024;".getBytes(StandardCharsets.UTF_8)));
+  formData.append("file", new FilePayload("f2.txt", "text/plain",
+    "hello".getBytes(StandardCharsets.UTF_8)));
+  APIResponse response = context.request().post("https://example.com/uploadFile", RequestOptions.create().setMultipart(formData));
+  ```
+
+- `expect(page).toHaveURL(url)` now supports `setIgnoreCase` [option](./api/class-pageassertions#page-assertions-to-have-url-option-ignore-case).
+
+### Browser Versions
+
+* Chromium 125.0.6422.14
+* Mozilla Firefox 125.0.1
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 124
+* Microsoft Edge 124
+
+## Version 1.43
+
+### New APIs
+
+- Method [`method: BrowserContext.clearCookies`] now supports filters to remove only some cookies.
+
+  ```java
+  // Clear all cookies.
+  context.clearCookies();
+  // New: clear cookies with a particular name.
+  context.clearCookies(new BrowserContext.ClearCookiesOptions().setName("session-id"));
+  // New: clear cookies for a particular domain.
+  context.clearCookies(new BrowserContext.ClearCookiesOptions().setDomain("my-origin.com"));
+  ```
+
+- New method [`method: Locator.contentFrame`] converts a [Locator] object to a [FrameLocator]. This can be useful when you have a [Locator] object obtained somewhere, and later on would like to interact with the content inside the frame.
+
+  ```java
+  Locator locator = page.locator("iframe[name='embedded']");
+  // ...
+  FrameLocator frameLocator = locator.contentFrame();
+  frameLocator.getByRole(AriaRole.BUTTON).click();
+  ```
+
+- New method [`method: FrameLocator.owner`] converts a [FrameLocator] object to a [Locator]. This can be useful when you have a [FrameLocator] object obtained somewhere, and later on would like to interact with the `iframe` element.
+
+  ```java
+  FrameLocator frameLocator = page.frameLocator("iframe[name='embedded']");
+  // ...
+  Locator locator = frameLocator.owner();
+  assertThat(locator).isVisible();
+  ```
+
+### Browser Versions
+
+* Chromium 124.0.6367.8
+* Mozilla Firefox 124.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 123
+* Microsoft Edge 123
+
+## Version 1.42
+
+### Experimental JUnit integration
+
+Add new [`@UsePlaywright`](./junit.md) annotation to your test classes to start using Playwright
+fixtures for [Page], [BrowserContext], [Browser], [APIRequestContext] and [Playwright] in the
+test methods.
+
+```java
+package org.example;
+
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.junit.UsePlaywright;
+import org.junit.jupiter.api.Test;
+
+import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@UsePlaywright
+public class TestExample {
+  void shouldNavigateToInstallationGuide(Page page) {
+    page.navigate("https://playwright.dev/java/");
+    page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("Docs")).click();
+    assertThat(page.getByRole(AriaRole.HEADING, new Page.GetByRoleOptions().setName("Installation"))).isVisible();
+  }
+
+  @Test
+  void shouldCheckTheBox(Page page) {
+    page.setContent("<input id='checkbox' type='checkbox'></input>");
+    page.locator("input").check();
+    assertEquals(true, page.evaluate("window['checkbox'].checked"));
+  }
+
+  @Test
+  void shouldSearchWiki(Page page) {
+    page.navigate("https://www.wikipedia.org/");
+    page.locator("input[name=\"search\"]").click();
+    page.locator("input[name=\"search\"]").fill("playwright");
+    page.locator("input[name=\"search\"]").press("Enter");
+    assertThat(page).hasURL("https://en.wikipedia.org/wiki/Playwright");
+  }
+}
+```
+
+In the example above, all three test methods use the same [Browser]. Each test
+uses its own [BrowserContext] and [Page].
+
+**Custom options**
+
+Implement your own `OptionsFactory` to initialize the fixtures with custom configuration.
+
+```java
+import com.microsoft.playwright.junit.Options;
+import com.microsoft.playwright.junit.OptionsFactory;
+import com.microsoft.playwright.junit.UsePlaywright;
+
+@UsePlaywright(MyTest.CustomOptions.class)
+public class MyTest {
+
+  public static class CustomOptions implements OptionsFactory {
+    @Override
+    public Options getOptions() {
+      return new Options()
+          .setHeadless(false)
+          .setContextOption(new Browser.NewContextOptions()
+              .setBaseURL("https://github.com"))
+          .setApiRequestOptions(new APIRequest.NewContextOptions()
+              .setBaseURL("https://playwright.dev"));
+    }
+  }
+
+  @Test
+  public void testWithCustomOptions(Page page, APIRequestContext request) {
+    page.navigate("/");
+    assertThat(page).hasURL(Pattern.compile("github"));
+
+    APIResponse response = request.get("/");
+    assertTrue(response.text().contains("Playwright"));
+  }
+}
+```
+
+Learn more about the fixtures in our [JUnit guide](./junit.md).
+
+### New Locator Handler
+
+New method [`method: Page.addLocatorHandler`] registers a callback that will be invoked when specified element becomes visible and may block Playwright actions. The callback can get rid of the overlay. Here is an example that closes a cookie dialog when it appears.
+  
+```java
+// Setup the handler.
+page.addLocatorHandler(
+    page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Hej! You are in control of your cookies.")),
+    () - > {
+        page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Accept all")).click();
+    });
+// Write the test as usual.
+page.navigate("https://www.ikea.com/");
+page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("Collection of blue and white")).click();
+assertThat(page.getByRole(AriaRole.HEADING, new Page.GetByRoleOptions().setName("Light and easy"))).isVisible();
+```
+
+### New APIs
+
+- [`method: Page.pdf`] accepts two new options [`option: tagged`] and [`option: outline`].
+
+### Announcements
+
+* ⚠️ Ubuntu 18 is not supported anymore.
+
+### Browser Versions
+
+* Chromium 123.0.6312.4
+* Mozilla Firefox 123.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 122
+* Microsoft Edge 123
+
+## Version 1.41
+
+### New APIs
+
+- New method [`method: Page.unrouteAll`] removes all routes registered by [`method: Page.route`] and [`method: Page.routeFromHAR`].
+- New method [`method: BrowserContext.unrouteAll`] removes all routes registered by [`method: BrowserContext.route`] and [`method: BrowserContext.routeFromHAR`].
+- New option [`option: style`] in [`method: Page.screenshot`] and [`method: Locator.screenshot`] to add custom CSS to the page before taking a screenshot.
+
+### Browser Versions
+
+* Chromium 121.0.6167.57
+* Mozilla Firefox 121.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 120
+* Microsoft Edge 120
+
+## Version 1.40
+
+### Test Generator Update
+
+![Playwright Test Generator](https://github.com/microsoft/playwright/assets/9881434/e8d67e2e-f36d-4301-8631-023948d3e190)
+
+New tools to generate assertions:
+- "Assert visibility" tool generates [`method: LocatorAssertions.toBeVisible`].
+- "Assert value" tool generates [`method: LocatorAssertions.toHaveValue`].
+- "Assert text" tool generates [`method: LocatorAssertions.toContainText`].
+
+Here is an example of a generated test with assertions:
+
+```java
+page.navigate("https://playwright.dev/");
+page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("Get started")).click();
+assertThat(page.getByLabel("Breadcrumbs").getByRole(AriaRole.LIST)).containsText("Installation");
+assertThat(page.getByLabel("Search")).isVisible();
+page.getByLabel("Search").click();
+page.getByPlaceholder("Search docs").fill("locator");
+assertThat(page.getByPlaceholder("Search docs")).hasValue("locator");
+```
+
+### New APIs
+
+- Option [`option: reason`] in [`method: Page.close`], [`method: BrowserContext.close`] and [`method: Browser.close`]. Close reason is reported for all operations interrupted by the closure.
+- Option [`option: firefoxUserPrefs`] in [`method: BrowserType.launchPersistentContext`].
+
+### Other Changes
+
+- Methods [`method: Download.path`] and [`method: Download.createReadStream`] throw an error for failed and cancelled downloads.
+
+### Browser Versions
+
+* Chromium 120.0.6099.28
+* Mozilla Firefox 119.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 119
+* Microsoft Edge 119
+
+## Version 1.39
+
+Evergreen browsers update.
+
+### Browser Versions
+
+* Chromium 119.0.6045.9
+* Mozilla Firefox 118.0.1
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 118
+* Microsoft Edge 118
+
+## Version 1.38
+
+### Trace Viewer Updates
+
+![Playwright Trace Viewer](https://github.com/microsoft/playwright/assets/746130/0c41e20d-c54b-4600-8ca8-1cbb6393ddef)
+
+1. Zoom into time range.
+1. Network panel redesign.
+
+### New APIs
+
+- [`event: BrowserContext.webError`]
+- [`method: Locator.pressSequentially`]
+
+### Deprecations
+
+* The following methods were deprecated: [`method: Page.type`], [`method: Frame.type`],
+  [`method: Locator.type`] and [`method: ElementHandle.type`].
+  Please use [`method: Locator.fill`] instead which is much faster. Use
+  [`method: Locator.pressSequentially`] only if there is a special keyboard
+  handling on the page, and you need to press keys one-by-one.
+
+### Browser Versions
+
+* Chromium 117.0.5938.62
+* Mozilla Firefox 117.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 116
+* Microsoft Edge 116
+
+## Version 1.37
+
+### New APIs
+
+- New methods [`method: BrowserContext.newCDPSession`] and [`method: Browser.newBrowserCDPSession`] create a [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) session for the page and browser respectively.
+
+  ```java
+  CDPSession cdpSession = page.context().newCDPSession(page);
+  cdpSession.send("Runtime.enable");
+
+  JsonObject params = new JsonObject();
+  params.addProperty("expression", "window.foo = 'bar'");
+  cdpSession.send("Runtime.evaluate", params);
+
+  Object foo = page.evaluate("window['foo']");
+  assertEquals("bar", foo);
+  ```
+
+### 📚 Debian 12 Bookworm Support
+
+Playwright now supports Debian 12 Bookworm on both x86_64 and arm64 for Chromium, Firefox and WebKit.
+Let us know if you encounter any issues!
+
+Linux support looks like this:
+
+|          | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11 | Debian 12 |
+| :--- | :---: | :---: | :---: | :---: |
+| Chromium | ✅ | ✅ | ✅ | ✅ |
+| WebKit | ✅ | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ✅ | ✅ |
+
+### Browser Versions
+
+* Chromium 116.0.5845.82
+* Mozilla Firefox 115.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 115
+* Microsoft Edge 115
+
+## Version 1.36
+
+🏝️ Summer maintenance release.
+
+### Browser Versions
+
+* Chromium 115.0.5790.75
+* Mozilla Firefox 115.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 114
+* Microsoft Edge 114
 
 ## Version 1.36
 
@@ -141,7 +530,7 @@ This version was also tested against the following stable channels:
 ### New APIs
 
 - New options [`option: updateMode`] and [`option: updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
-- Chaining existing locator objects, see [locator docs](./locators.md#chaining-locators) for details.
+- Chaining existing locator objects, see [locator docs](./locators.md#matching-inside-a-locator) for details.
 - New option [`option: name`] in method [`method: Tracing.startChunk`].
 
 ### Browser Versions
@@ -380,7 +769,7 @@ This version was also tested against the following stable channels:
 
 ### New APIs & changes
 
-- Default assertions timeout now can be changed with [`setDefaultAssertionTimeout`](./test-assertions#playwright-assertions-set-default-assertion-timeout).
+- Default assertions timeout now can be changed with [`setDefaultAssertionTimeout`](./api/class-playwrightassertions#playwright-assertions-set-default-assertion-timeout).
 
 ### Announcements
 
@@ -449,7 +838,7 @@ Use the new methods [`method: Page.routeFromHAR`] or [`method: BrowserContext.ro
 context.routeFromHAR(Paths.get("example.har"));
 ```
 
-Read more in [our documentation](./network#record-and-replay-requests).
+Read more in [our documentation](./mock.md#mocking-with-har-files).
 
 
 ### Advanced Routing
@@ -597,7 +986,7 @@ This version was also tested against the following stable channels:
   page.locator("article", new Page.LocatorOptions().setHas(page.locator(".highlight"))).click();
   ```
 
-  Read more in [locator documentation](./api/class-locator#locator-locator-option-has)
+  Read more in [locator documentation](./api/class-locator#locator-locator)
 
 - New [`method: Locator.page`]
 - [`method: Page.screenshot`] and [`method: Locator.screenshot`] now automatically hide blinking caret
@@ -670,7 +1059,7 @@ Read more in [our documentation](./test-assertions).
     page.locator("li", new Page.LocatorOptions().setHasText("my item"))
         .locator("button").click();
     ```
-    Read more in [locator documentation](./api/class-locator#locator-locator-option-has-text)
+    Read more in [locator documentation](./api/class-locator#locator-locator)
 
 ### Tracing Improvements
 
@@ -787,31 +1176,31 @@ This version of Playwright was also tested against the following stable channels
 
 ### 🖱️ Mouse Wheel
 
-By using [`Mouse.wheel`](https://playwright.dev/java/docs/api/class-mouse#mouse-wheel) you are now able to scroll vertically or horizontally.
+By using [`method: Mouse.wheel`] you are now able to scroll vertically or horizontally.
 
 ### 📜 New Headers API
 
 Previously it was not possible to get multiple header values of a response. This is now possible and additional helper functions are available:
 
-- [Request.allHeaders()](https://playwright.dev/java/docs/api/class-request#request-all-headers)
-- [Request.headersArray()](https://playwright.dev/java/docs/api/class-request#request-headers-array)
-- [Request.headerValue(name: string)](https://playwright.dev/java/docs/api/class-request#request-header-value)
-- [Response.allHeaders()](https://playwright.dev/java/docs/api/class-response#response-all-headers)
-- [Response.headersArray()](https://playwright.dev/java/docs/api/class-response#response-headers-array)
-- [Response.headerValue(name: string)](https://playwright.dev/java/docs/api/class-response#response-header-value)
-- [Response.headerValues(name: string)](https://playwright.dev/java/docs/api/class-response#response-header-values)
+- [`method: Request.allHeaders`]
+- [`method: Request.headersArray`]
+- [`method: Request.headerValue`]
+- [`method: Response.allHeaders`]
+- [`method: Response.headersArray`]
+- [`method: Response.headerValue`]
+- [`method: Response.headerValues`]
 
 ### 🌈 Forced-Colors emulation
 
-Its now possible to emulate the `forced-colors` CSS media feature by passing it in the [context options](https://playwright.dev/java/docs/api/class-browser#browser-new-context-option-color-scheme) or calling [Page.emulateMedia()](https://playwright.dev/java/docs/api/class-page#page-emulate-media).
+Its now possible to emulate the `forced-colors` CSS media feature by passing it in the [`method: Browser.newContext`] or calling [`method: Page.emulateMedia`].
 
 ### New APIs
 
-- [Page.route()](https://playwright.dev/java/docs/api/class-page#page-route) accepts new `times` option to specify how many times this route should be matched.
-- [Page.setChecked(selector: string, checked: boolean)](https://playwright.dev/java/docs/api/class-page#page-set-checked) and [Locator.setChecked(selector: string, checked: boolean)](https://playwright.dev/java/docs/api/class-locator#locator-set-checked) was introduced to set the checked state of a checkbox.
-- [Request.sizes()](https://playwright.dev/java/docs/api/class-request#request-sizes) Returns resource size information for given http request.
-- [Tracing.startChunk()](https://playwright.dev/java/docs/api/class-tracing#tracing-start-chunk) - Start a new trace chunk.
-- [Tracing.stopChunk()](https://playwright.dev/java/docs/api/class-tracing#tracing-stop-chunk) - Stops a new trace chunk.
+- [`method: Page.route`] accepts new `times` option to specify how many times this route should be matched.
+- [`method: Page.setChecked`] and [`method: Locator.setChecked`] were introduced to set the checked state of a checkbox.
+- [`method: Request.sizes`] Returns resource size information for given http request.
+- [`method: Tracing.startChunk`] - Start a new trace chunk.
+- [`method: Tracing.stopChunk`] - Stops a new trace chunk.
 
 ### Browser Versions
 

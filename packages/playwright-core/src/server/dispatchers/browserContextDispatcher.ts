@@ -274,6 +274,19 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     });
   }
 
+  async inspectSingleSelector(params: channels.BrowserContextInspectSingleSelectorParams): Promise<channels.BrowserContextInspectSingleSelectorResult> {
+    return await Recorder.inspectSingleSelector(this._context, params);
+  }
+
+  async recorderSupplementDisable(): Promise<channels.BrowserContextRecorderSupplementDisableResult> {
+    const actions = await Recorder.close(this._context);
+    return { actions };
+  }
+
+  async setStorageState(params: channels.BrowserContextSetStorageStateParams, metadata: CallMetadata): Promise<channels.BrowserContextSetStorageStateResult> {
+    await this._context.setStorageState(metadata, params);
+  }
+
   async storageState(params: channels.BrowserContextStorageStateParams, metadata: CallMetadata): Promise<channels.BrowserContextStorageStateResult> {
     return await this._context.storageState();
   }

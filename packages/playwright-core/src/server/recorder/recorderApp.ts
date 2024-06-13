@@ -50,6 +50,7 @@ export interface IRecorderApp extends EventEmitter {
   setSelector(selector: string, userGesture?: boolean): Promise<void>;
   updateCallLogs(callLogs: CallLog[]): Promise<void>;
   setSources(sources: Source[]): Promise<void>;
+  setOnSelectorPicked(handler: ((selector: string) => void) | undefined): void;
 }
 
 export class EmptyRecorderApp extends EventEmitter implements IRecorderApp {
@@ -60,19 +61,26 @@ export class EmptyRecorderApp extends EventEmitter implements IRecorderApp {
   async setSelector(selector: string, userGesture?: boolean): Promise<void> {}
   async updateCallLogs(callLogs: CallLog[]): Promise<void> {}
   async setSources(sources: Source[]): Promise<void> {}
+  setOnSelectorPicked(handler: ((selector: string) => void) | undefined) { }
 }
 
 export class RecorderApp extends EventEmitter implements IRecorderApp {
   private _page: Page;
   readonly wsEndpoint: string | undefined;
   private _recorder: Recorder;
+  private _onSelectorPicked: ((selector: string) => void) | undefined;
 
-  constructor(recorder: Recorder, page: Page, wsEndpoint: string | undefined) {
+  constructor(recorder: Recorder, page: Page, wsEndpoint: string | undefined, onSelectorPicked: ((selector: string) => void) | undefined = undefined) {
     super();
     this.setMaxListeners(0);
     this._recorder = recorder;
     this._page = page;
     this.wsEndpoint = wsEndpoint;
+    this._onSelectorPicked = onSelectorPicked;
+  }
+
+  public setOnSelectorPicked(handler: ((selector: string) => void) | undefined) {
+    this._onSelectorPicked = handler;
   }
 
   async close() {
@@ -113,13 +121,13 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
     await mainFrame.goto(serverSideCallMetadata(), 'https://playwright/index.html');
   }
 
-  static async open(recorder: Recorder, inspectedContext: BrowserContext, handleSIGINT: boolean | undefined): Promise<IRecorderApp> {
+  static async open(recorder: Recorder, inspectedContext: BrowserContext, handleSIGINT: boolean | undefined, onSelectorPicked: ((selector: string) => void) | undefined = undefined): Promise<IRecorderApp> {
     const sdkLanguage = inspectedContext.attribution.playwright.options.sdkLanguage;
     const headed = !!inspectedContext._browser.options.headful;
     const recorderPlaywright = (require('../playwright').createPlaywright as typeof import('../playwright').createPlaywright)({ sdkLanguage: 'javascript', isInternalPlaywright: true });
     const { context, page } = await launchApp(recorderPlaywright.chromium, {
       sdkLanguage,
-      windowSize: { width: 600, height: 600 },
+      windowSize: { width: 0, height: 0 },
       windowPosition: { x: 1020, y: 10 },
       persistentContextOptions: {
         noDefaultViewport: true,
@@ -134,7 +142,7 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
       await context._browser._defaultContext!._loadDefaultContextAsIs(progress);
     });
 
-    const result = new RecorderApp(recorder, page, context._browser.options.wsEndpoint);
+    const result = new RecorderApp(recorder, page, context._browser.options.wsEndpoint, onSelectorPicked);
     await result._init();
     return result;
   }
@@ -176,6 +184,7 @@ export class RecorderApp extends EventEmitter implements IRecorderApp {
         this._recorder.setMode('recording');
       }
     }
+    this._onSelectorPicked?.(selector);
     await this._page.mainFrame().evaluateExpression(((data: { selector: string, userGesture?: boolean }) => {
       window.playwrightSetSelector(data.selector, data.userGesture);
     }).toString(), { isFunction: true }, { selector, userGesture }).catch(() => {});

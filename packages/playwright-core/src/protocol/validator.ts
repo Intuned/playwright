@@ -925,6 +925,21 @@ scheme.BrowserContextRecorderSupplementEnableParams = tObject({
   omitCallTracking: tOptional(tBoolean),
 });
 scheme.BrowserContextRecorderSupplementEnableResult = tOptional(tObject({}));
+scheme.BrowserContextInspectSingleSelectorParams = tObject({
+  language: tString,
+});
+scheme.BrowserContextInspectSingleSelectorResult = tObject({
+  selector: tString,
+});
+scheme.BrowserContextSetStorageStateParams = tObject({
+  cookies: tArray(tType('NetworkCookie')),
+  origins: tArray(tType('OriginStorage')),
+});
+scheme.BrowserContextSetStorageStateResult = tOptional(tObject({}));
+scheme.BrowserContextRecorderSupplementDisableParams = tOptional(tObject({}));
+scheme.BrowserContextRecorderSupplementDisableResult = tObject({
+  actions: tArray(tString),
+});
 scheme.BrowserContextNewCDPSessionParams = tObject({
   page: tOptional(tChannel(['Page'])),
   frame: tOptional(tChannel(['Frame'])),

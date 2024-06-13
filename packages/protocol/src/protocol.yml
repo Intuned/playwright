@@ -1152,6 +1152,29 @@ BrowserContext:
         handleSIGINT: boolean?
         omitCallTracking: boolean?
 
+    inspectSingleSelector:
+      experimental: True
+      returns:
+        selector: string
+      parameters:
+        language: string
+
+    setStorageState:
+      parameters:
+        cookies:
+          type: array
+          items: NetworkCookie
+        origins:
+          type: array
+          items: OriginStorage
+
+    recorderSupplementDisable:
+      experimental: True
+      returns:
+        actions:
+          type: array
+          items: string
+
     newCDPSession:
       parameters:
         page: Page?

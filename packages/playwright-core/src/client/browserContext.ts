@@ -410,6 +410,25 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel>
     }
     return state;
   }
+  async intunedSetStorageState(params: StorageState) {
+    await this._channel.setStorageState(params);
+  }
+
+  async intunedEnableRecorder(params: {
+    language: string,
+  }) {
+    await this._channel.recorderSupplementEnable({ ...params, mode: 'recording' });
+  }
+
+  async intunedDisableRecorder() {
+    return this._channel.recorderSupplementDisable();
+  }
+
+  async intunedInspectSingleSelector(params: {
+    language: string,
+  }) {
+    return this._channel.inspectSingleSelector(params);
+  }
 
   backgroundPages(): Page[] {
     return [...this._backgroundPages];
